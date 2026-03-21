@@ -1,11 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Pause, Square, Clock } from 'lucide-react';
 import api from '../lib/api';
+import { useClickSound } from '../hooks/useClickSound';
+import { useSocket } from '../context/SocketContext';
 
-const LS_KEY_ELAPSED   = 'tv_timer_elapsed';
-const LS_KEY_SESSION   = 'tv_timer_sessionId';
-const LS_KEY_ACTIVE    = 'tv_timer_active';
-const LS_KEY_STARTED   = 'tv_timer_startedAt'; // epoch ms when timer last resumed
+const LS_KEY_ELAPSED  = 'tv_timer_elapsed';
+const LS_KEY_SESSION  = 'tv_timer_sessionId';
+const LS_KEY_ACTIVE   = 'tv_timer_active';
+const LS_KEY_STARTED  = 'tv_timer_startedAt';
+
+// Timezone offset minutes east of UTC  (IST = +330)
+const TZ_OFFSET = new Date().getTimezoneOffset() * -1;
 
 const formatTime = (seconds: number) => {
   const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
@@ -14,14 +19,12 @@ const formatTime = (seconds: number) => {
   return `${h}:${m}:${s}`;
 };
 
-/** Restore elapsed from localStorage, correcting for time the tab was closed */
 const restoreElapsed = (): number => {
-  const savedElapsed  = Number(localStorage.getItem(LS_KEY_ELAPSED) || 0);
-  const savedActive   = localStorage.getItem(LS_KEY_ACTIVE) === 'true';
+  const savedElapsed   = Number(localStorage.getItem(LS_KEY_ELAPSED) || 0);
+  const savedActive    = localStorage.getItem(LS_KEY_ACTIVE) === 'true';
   const savedStartedAt = Number(localStorage.getItem(LS_KEY_STARTED) || 0);
   if (savedActive && savedStartedAt) {
-    const extraSeconds = Math.floor((Date.now() - savedStartedAt) / 1000);
-    return savedElapsed + extraSeconds;
+    return savedElapsed + Math.floor((Date.now() - savedStartedAt) / 1000);
   }
   return savedElapsed;
 };
@@ -32,13 +35,13 @@ const StudyTrackerCard: React.FC = () => {
   const [sessionId,  setSessionId]  = useState<string | null>(() => localStorage.getItem(LS_KEY_SESSION));
   const [totalToday, setTotalToday] = useState(0);
 
-  // Track when this "run" started so we can compute elapsed accurately
   const runStartRef = useRef<number>(Date.now() - elapsed * 1000);
+  const savingRef   = useRef(false);  // prevent duplicate PUT calls
+  const playClick   = useClickSound();
+  const socket      = useSocket();
 
-  // ── Persist to localStorage on every change ───────────────
-  useEffect(() => {
-    localStorage.setItem(LS_KEY_ELAPSED, String(elapsed));
-  }, [elapsed]);
+  // ── Persist ──────────────────────────────────────────────────────────────
+  useEffect(() => { localStorage.setItem(LS_KEY_ELAPSED, String(elapsed)); }, [elapsed]);
   useEffect(() => {
     localStorage.setItem(LS_KEY_ACTIVE, String(isActive));
     if (isActive) localStorage.setItem(LS_KEY_STARTED, String(runStartRef.current));
@@ -48,7 +51,7 @@ const StudyTrackerCard: React.FC = () => {
     else           localStorage.removeItem(LS_KEY_SESSION);
   }, [sessionId]);
 
-  // ── Tick ──────────────────────────────────────────────────
+  // ── Tick ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!isActive) return;
     const id = setInterval(() => {
@@ -57,61 +60,76 @@ const StudyTrackerCard: React.FC = () => {
     return () => clearInterval(id);
   }, [isActive]);
 
-  // ── Fetch today total ─────────────────────────────────────
+  // ── Fetch today total ─────────────────────────────────────────────────────
   const fetchTodayTotal = useCallback(async () => {
     try {
-      const { data } = await api.get('/timer/today');
-      const total = data.reduce((acc: number, s: any) => acc + (s.duration || 0), 0);
+      const { data } = await api.get(`/timer/today?tz=${TZ_OFFSET}`);
+      const total = (data as any[]).reduce((acc, s) => acc + (s.duration || 0), 0);
       setTotalToday(total);
-    } catch {
-      /* silent — total is non-critical */
-    }
+    } catch { /* silent */ }
   }, []);
 
   useEffect(() => { fetchTodayTotal(); }, [fetchTodayTotal]);
 
-  // ── START — instant, sync to backend in background ────────
+  // Real-time: update when another timer instance saves a session
+  useEffect(() => {
+    if (!socket) return;
+    const handler = (data: { total?: number }) => {
+      if (data.total !== undefined) setTotalToday(data.total);
+      else fetchTodayTotal();
+    };
+    socket.on('study:sync', handler);
+    return () => { socket.off('study:sync', handler); };
+  }, [socket, fetchTodayTotal]);
+
+  // ── START ─────────────────────────────────────────────────────────────────
   const handleStart = () => {
+    playClick();
     runStartRef.current = Date.now() - elapsed * 1000;
-    setIsActive(true); // INSTANT — doesn't wait for API
-
+    setIsActive(true);
     if (!sessionId) {
-      const date = new Date().toISOString().split('T')[0];
-      api.post('/timer/session', { startTime: new Date(), date })
-        .then(({ data }) => {
-          setSessionId(data._id);
-          localStorage.setItem(LS_KEY_SESSION, data._id);
-        })
-        .catch(err => console.error('[Timer] Session create failed (non-blocking):', err?.message));
+      api.post('/timer/session', { timezoneOffset: TZ_OFFSET })
+        .then(({ data }) => { setSessionId(data._id); localStorage.setItem(LS_KEY_SESSION, data._id); })
+        .catch(err => console.error('[Timer] Session create failed:', err?.message));
     }
   };
 
-  // ── PAUSE — instant, sync in background ───────────────────
+  // ── PAUSE ─────────────────────────────────────────────────────────────────
   const handlePause = () => {
-    setIsActive(false); // INSTANT
-
-    if (sessionId) {
-      api.put(`/timer/session/${sessionId}`, { endTime: new Date(), duration: elapsed })
-        .then(() => fetchTodayTotal())
-        .catch(err => console.error('[Timer] Pause sync failed (non-blocking):', err?.message));
+    playClick(600, 0.04, 0.1);
+    setIsActive(false);
+    if (sessionId && !savingRef.current) {
+      savingRef.current = true;
+      api.put(`/timer/session/${sessionId}`, { duration: elapsed })
+        .then(({ data }) => {
+          fetchTodayTotal();
+          socket?.emit('study:update', { date: data.date, total: data.duration });
+        })
+        .catch(err => console.error('[Timer] Pause sync failed:', err?.message))
+        .finally(() => { savingRef.current = false; });
     }
   };
 
-  // ── STOP ──────────────────────────────────────────────────
+  // ── STOP ──────────────────────────────────────────────────────────────────
   const handleStop = () => {
-    setIsActive(false); // INSTANT
+    playClick(400, 0.06, 0.08);
+    setIsActive(false);
     const finalElapsed = elapsed;
-    const finalId = sessionId;
-
+    const finalId      = sessionId;
     setElapsed(0);
     setSessionId(null);
     runStartRef.current = Date.now();
+    localStorage.setItem(LS_KEY_ELAPSED, '0');
     localStorage.removeItem(LS_KEY_STARTED);
-
-    if (finalId) {
-      api.put(`/timer/session/${finalId}`, { endTime: new Date(), duration: finalElapsed })
-        .then(() => fetchTodayTotal())
-        .catch(err => console.error('[Timer] Stop sync failed (non-blocking):', err?.message));
+    if (finalId && !savingRef.current) {
+      savingRef.current = true;
+      api.put(`/timer/session/${finalId}`, { duration: finalElapsed })
+        .then(({ data }) => {
+          fetchTodayTotal();
+          socket?.emit('study:update', { date: data.date, total: data.duration });
+        })
+        .catch(err => console.error('[Timer] Stop sync failed:', err?.message))
+        .finally(() => { savingRef.current = false; });
     }
   };
 
@@ -136,29 +154,18 @@ const StudyTrackerCard: React.FC = () => {
           {formatTime(elapsed)}
           {isActive && <span className="ml-1 inline-block w-2 h-2 rounded-full bg-[#E50914] animate-ping" />}
         </div>
-
         <div className="flex gap-3 items-center">
           {!isActive ? (
-            <button
-              onClick={handleStart}
-              className="w-12 h-12 flex items-center justify-center rounded-sm bg-[#111] border-2 border-green-500 text-green-500 hover:bg-green-500 hover:text-white hover:shadow-[0_0_15px_rgba(34,197,94,0.8)] active:scale-95 transition-all"
-            >
+            <button onClick={handleStart} className="w-12 h-12 flex items-center justify-center rounded-sm bg-[#111] border-2 border-green-500 text-green-500 hover:bg-green-500 hover:text-white hover:shadow-[0_0_15px_rgba(34,197,94,0.8)] active:scale-95 transition-all">
               <Play size={20} fill="currentColor" className="ml-0.5" />
             </button>
           ) : (
-            <button
-              onClick={handlePause}
-              className="w-12 h-12 flex items-center justify-center rounded-sm bg-[#111] border-2 border-[#E50914] text-[#E50914] hover:bg-[#E50914] hover:text-white hover:shadow-[0_0_15px_rgba(229,9,20,0.8)] active:scale-95 transition-all"
-            >
+            <button onClick={handlePause} className="w-12 h-12 flex items-center justify-center rounded-sm bg-[#111] border-2 border-[#E50914] text-[#E50914] hover:bg-[#E50914] hover:text-white hover:shadow-[0_0_15px_rgba(229,9,20,0.8)] active:scale-95 transition-all">
               <Pause size={20} fill="currentColor" />
             </button>
           )}
-
-          <button
-            onClick={handleStop}
-            disabled={elapsed === 0 && !isActive}
-            className="w-11 h-11 flex items-center justify-center rounded-sm bg-[#111] border border-gray-600 text-gray-500 hover:border-white hover:text-white active:scale-95 transition-all disabled:opacity-25 disabled:cursor-not-allowed"
-          >
+          <button onClick={handleStop} disabled={elapsed === 0 && !isActive}
+            className="w-11 h-11 flex items-center justify-center rounded-sm bg-[#111] border border-gray-600 text-gray-500 hover:border-white hover:text-white active:scale-95 transition-all disabled:opacity-25 disabled:cursor-not-allowed">
             <Square size={16} fill="currentColor" />
           </button>
         </div>
