@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Plus, Trash2, Youtube, FileText, X, Save, CheckCircle2, Circle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../lib/api';
@@ -108,7 +108,7 @@ function NoteEditor({
 }) {
   const draftKey = lsDraftKey(note._id);
 
-  // Restore from localStorage draft if available (survives refresh / tab close)
+  // Restore from localStorage draft if available
   const storedDraft = (() => {
     try { return JSON.parse(localStorage.getItem(draftKey) || 'null'); } catch { return null; }
   })();
@@ -118,7 +118,6 @@ function NoteEditor({
   const [saving,  setSaving]  = useState(false);
   const [saved,   setSaved]   = useState(false);
   const [dirty,   setDirty]   = useState(!!storedDraft);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const ytId = extractYTId(content);
 
@@ -133,42 +132,22 @@ function NoteEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Save draft to localStorage on every keystroke (instant)
+  // Save draft to localStorage (instant persistence)
   const persistDraft = useCallback((t: string, c: string) => {
     localStorage.setItem(draftKey, JSON.stringify({ title: t, content: c }));
   }, [draftKey]);
 
-  // Debounced auto-save to backend (3s)
-  const scheduleAutoSave = useCallback((t: string, c: string) => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(async () => {
-      setSaving(true);
-      try {
-        await onSave(note._id, t, c);
-        localStorage.removeItem(draftKey);
-        setDirty(false);
-        setSaved(true);
-        setTimeout(() => setSaved(false), 2000);
-      } finally {
-        setSaving(false);
-      }
-    }, 3000);
-  }, [note._id, draftKey, onSave]);
-
   const handleTitleChange = (v: string) => {
     setTitle(v); setDirty(true); setSaved(false);
     persistDraft(v, content);
-    scheduleAutoSave(v, content);
   };
   const handleContentChange = (v: string) => {
     setContent(v); setDirty(true); setSaved(false);
     persistDraft(title, v);
-    scheduleAutoSave(title, v);
   };
 
-  // Manual Save — immediate API call
+  // Manual Save — primary sync mechanism
   const handleManualSave = async () => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
     setSaving(true);
     try {
       await onSave(note._id, title, content);
@@ -176,24 +155,13 @@ function NoteEditor({
       setDirty(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
-      toast.success('Note saved!');
+      toast.success('Note synced to TimeVault');
     } catch {
-      toast.error('Save failed — draft kept locally');
+      toast.error('Sync failed — draft preserved locally');
     } finally {
       setSaving(false);
     }
   };
-
-  // On unmount — flush save immediately if pending
-  useEffect(() => {
-    return () => {
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current);
-        onSave(note._id, title, content).then(() => localStorage.removeItem(draftKey)).catch(() => {});
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   return (
     <motion.div
@@ -220,17 +188,17 @@ function NoteEditor({
             {/* Status indicator */}
             {saving && (
               <span className="text-[10px] font-mono text-[#45A29E] flex items-center gap-1">
-                <Save size={10} className="animate-spin" /> Saving…
+                <Save size={10} className="animate-spin" /> Syncing…
               </span>
             )}
             {!saving && saved && (
               <span className="text-[10px] font-mono text-green-500 flex items-center gap-1">
-                <CheckCircle2 size={10} /> Saved
+                <CheckCircle2 size={10} /> Synced
               </span>
             )}
             {!saving && !saved && dirty && (
               <span className="text-[10px] font-mono text-amber-500/80 flex items-center gap-1">
-                <Circle size={8} className="fill-amber-500/80" /> Unsaved
+                <Circle size={8} className="fill-amber-500/80" /> Unsynced
               </span>
             )}
 
@@ -288,8 +256,8 @@ function NoteEditor({
         />
 
         <div className="px-5 py-3 border-t border-white/5 text-[10px] font-mono text-gray-700 flex items-center justify-between">
-          <span>Auto-saves 3s after you stop · Draft survives refresh</span>
-          <span>Paste a YouTube link to auto-embed</span>
+          <span>Drafts auto-saved locally · Use "Save" to sync to cloud</span>
+          <span>Manual sync only</span>
         </div>
       </motion.div>
     </motion.div>
@@ -348,7 +316,7 @@ export default function NotesView() {
     }
   };
 
-  // Save (called from editor — now async to match new signature)
+  // Save
   const handleSave = useCallback(async (id: string, title: string, content: string) => {
     const { data: updated } = await api.put<Note>(`/notes/${id}`, { title, content });
     setNotes((prev) => prev.map((n) => n._id === id ? updated : n));

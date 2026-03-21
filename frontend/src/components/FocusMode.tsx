@@ -3,6 +3,9 @@ import { X, Play, Pause, RotateCcw, Maximize2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../lib/api';
 import { useClickSound } from '../hooks/useClickSound';
+import { useSocket } from '../context/SocketContext';
+import { useMusic } from '../context/MusicContext';
+import { Music, Youtube, Volume2 } from 'lucide-react';
 
 // ─── Shared localStorage keys (same as FloatingTimer & StudyTrackerCard) ──────
 const LS_KEY_ELAPSED  = 'tv_timer_elapsed';
@@ -26,6 +29,9 @@ const restoreElapsed = (): number => {
   }
   return savedElapsed;
 };
+
+// Timezone offset in minutes east of UTC (e.g. IST = +330)
+const TZ_OFFSET = new Date().getTimezoneOffset() * -1;
 
 // ─── Motivational quotes ──────────────────────────────────────────────────────
 const QUOTES = [
@@ -53,7 +59,10 @@ export default function FocusMode({ onClose }: FocusModeProps) {
   const [pulseRing, setPulseRing] = useState(false);
 
   const runStartRef = useRef<number>(Date.now() - elapsed * 1000);
+  const savingRef   = useRef(false); // prevent duplicate saves
   const playClick   = useClickSound();
+  const socket      = useSocket();
+  const { currentTrack, isPlaying, volume, setVolume, play, pause } = useMusic();
 
   // ── Escape key to close ────────────────────────────────────────────────────
   useEffect(() => {
@@ -93,20 +102,28 @@ export default function FocusMode({ onClose }: FocusModeProps) {
     setQuote(QUOTES[Math.floor(Math.random() * QUOTES.length)]);
 
     if (!sessionId) {
-      api.post('/timer/session', { startTime: new Date(), date: new Date().toISOString().split('T')[0] })
+      api.post('/timer/session', { timezoneOffset: TZ_OFFSET })
         .then(({ data }) => { setSessionId(data._id); localStorage.setItem(LS_KEY_SESSION, data._id); })
         .catch(console.error);
     }
-  }, [elapsed, sessionId, playClick]);
+    play();
+  }, [elapsed, sessionId, playClick, play]);
 
   const handlePause = useCallback(() => {
     playClick(600, 0.04, 0.1);
     setIsActive(false);
     setPulseRing(false);
-    if (sessionId) {
-      api.put(`/timer/session/${sessionId}`, { endTime: new Date(), duration: elapsed }).catch(console.error);
+    if (sessionId && !savingRef.current) {
+      savingRef.current = true;
+      api.put(`/timer/session/${sessionId}`, { duration: elapsed })
+        .then(({ data }) => {
+          socket?.emit('study:update', { date: data.date, total: data.duration });
+        })
+        .catch(console.error)
+        .finally(() => { savingRef.current = false; });
     }
-  }, [sessionId, elapsed, playClick]);
+    pause();
+  }, [sessionId, elapsed, playClick, socket, pause]);
 
   const handleReset = useCallback(() => {
     playClick(400, 0.06, 0.08);
@@ -118,10 +135,17 @@ export default function FocusMode({ onClose }: FocusModeProps) {
     runStartRef.current = Date.now();
     localStorage.setItem(LS_KEY_ELAPSED, '0');
     localStorage.removeItem(LS_KEY_STARTED);
-    if (fi) {
-      api.put(`/timer/session/${fi}`, { endTime: new Date(), duration: fe }).catch(console.error);
+    if (fi && !savingRef.current) {
+      savingRef.current = true;
+      api.put(`/timer/session/${fi}`, { duration: fe })
+        .then(({ data }) => {
+          socket?.emit('study:update', { date: data.date, total: data.duration });
+        })
+        .catch(console.error)
+        .finally(() => { savingRef.current = false; });
     }
-  }, [elapsed, sessionId, playClick]);
+    pause(); // Stop/Reset also pauses music
+  }, [elapsed, sessionId, playClick, socket, pause]);
 
   // ── Prevent body scroll ────────────────────────────────────────────────────
   useEffect(() => {
@@ -306,6 +330,37 @@ export default function FocusMode({ onClose }: FocusModeProps) {
           "{quote}"
         </motion.p>
       </AnimatePresence>
+
+      {/* Music Controls (Focus Mode Style) */}
+      <div className="absolute bottom-20 flex flex-col items-center gap-4">
+        <div className="flex items-center gap-5 px-6 py-3 bg-white/5 border border-white/10 rounded-2xl backdrop-blur-md">
+          <div className="flex items-center gap-3 pr-5 border-r border-white/10">
+            {currentTrack.type === 'youtube' ? <Youtube size={16} className="text-red-500" /> : <Music size={16} className="text-cyan-400" />}
+            <div className="flex flex-col max-w-[120px]">
+              <span className="text-[10px] font-mono font-bold text-gray-300 truncate tracking-wider">{currentTrack.title}</span>
+              <span className="text-[8px] font-mono text-gray-600 uppercase tracking-widest leading-none">Focus Audio</span>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-4">
+            <button onClick={isPlaying ? pause : play} className="text-gray-400 hover:text-white transition-colors">
+              {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" className="ml-0.5" />}
+            </button>
+            
+            <div className="flex items-center gap-3 w-28">
+              <Volume2 size={13} className="text-gray-600" />
+              <div className="flex-1 h-1 bg-white/5 rounded-full overflow-hidden relative cursor-pointer group/modevol">
+                <input
+                  type="range" min="0" max="1" step="0.01" value={volume}
+                  onChange={(e) => setVolume(parseFloat(e.target.value))}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                />
+                <div className="absolute top-0 left-0 h-full bg-cyan-500/50 transition-all" style={{ width: `${volume * 100}%` }} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Bottom hint */}
       <p className="absolute bottom-6 text-[10px] font-mono text-gray-800 uppercase tracking-widest">

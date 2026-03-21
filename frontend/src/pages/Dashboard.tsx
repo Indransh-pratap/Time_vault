@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import TaskList from '../components/TaskList';
-import AnalyticsHeatmap from '../components/AnalyticsHeatmap';
+import StudyMetrics from '../components/StudyMetrics';
 import TargetsDashboard from '../components/TargetsDashboard';
 import PlannerView from '../components/PlannerView';
 import SubscriptionModal from '../components/SubscriptionModal';
@@ -16,8 +16,10 @@ import FocusMusic from '../components/FocusMusic';
 import NotesView from '../components/NotesView';
 import XPBar from '../components/XPBar';
 import FloatingTimer from '../components/FloatingTimer';
+import FloatingMusicPlayer from '../components/FloatingMusicPlayer';
 import FocusMode from '../components/FocusMode';
 import { useXP } from '../hooks/useXP';
+import { useSocket } from '../context/SocketContext';
 import api from '../lib/api';
 
 type TabId = 'tasks' | 'planner' | 'targets' | 'analytics' | 'alarm' | 'music' | 'notes';
@@ -29,6 +31,8 @@ const fmtTime = (s: number) => {
   return `${h}:${m}:${sec}`;
 };
 
+const TZ_OFFSET = new Date().getTimezoneOffset() * -1;
+
 export default function Dashboard() {
   const { mongoUser, logout } = useAuth();
   const [showProModal,    setShowProModal]    = useState(false);
@@ -37,11 +41,12 @@ export default function Dashboard() {
   const [focusModeOpen,   setFocusModeOpen]   = useState(false);
   const [todayStudy,      setTodayStudy]      = useState(0);
   const xp = useXP();
+  const socket = useSocket();
 
   // Fetch today's study total
   const fetchTodayStudy = useCallback(async () => {
     try {
-      const { data } = await api.get('/timer/today');
+      const { data } = await api.get(`/timer/today?tz=${TZ_OFFSET}`);
       const total = (data as any[]).reduce((acc, s) => acc + (s.duration || 0), 0);
       setTodayStudy(total);
     } catch { /* silent */ }
@@ -49,10 +54,18 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchTodayStudy();
-    // Refresh every 60 seconds
-    const id = setInterval(fetchTodayStudy, 60_000);
-    return () => clearInterval(id);
   }, [fetchTodayStudy]);
+
+  // Real-time update for today's study time in header
+  useEffect(() => {
+    if (!socket) return;
+    const handler = (data: { total?: number }) => {
+      if (data.total !== undefined) setTodayStudy(data.total);
+      else fetchTodayStudy();
+    };
+    socket.on('study:sync', handler);
+    return () => { socket.off('study:sync', handler); };
+  }, [socket, fetchTodayStudy]);
 
   const tabs: { id: TabId; label: string; icon: React.ElementType }[] = [
     { id: 'tasks',     label: 'Directives',  icon: LayoutDashboard },
@@ -69,7 +82,7 @@ export default function Dashboard() {
       case 'tasks':     return <TaskList xpHook={xp} />;
       case 'planner':   return <PlannerView />;
       case 'targets':   return <TargetsDashboard />;
-      case 'analytics': return <AnalyticsHeatmap />;
+      case 'analytics': return <StudyMetrics />;
       case 'alarm':     return <AlarmClock />;
       case 'notes':     return <NotesView />;
       case 'music':     return <FocusMusic />;
@@ -262,6 +275,7 @@ export default function Dashboard() {
 
       {/* Floating Timer — always visible across all tabs */}
       <FloatingTimer />
+      <FloatingMusicPlayer />
 
       {/* Focus Mode — full-screen overlay */}
       <AnimatePresence>

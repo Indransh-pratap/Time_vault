@@ -5,21 +5,25 @@ import './index.css';
 import { AuthProvider } from './context/AuthContext';
 import { Toaster } from 'react-hot-toast';
 
+import { MusicProvider } from './context/MusicContext';
+
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
     <AuthProvider>
-      <Toaster 
-        position="top-right" 
-        toastOptions={{
-          style: {
-            background: '#0B0C10',
-            color: '#fff',
-            border: '1px solid #E50914',
-            boxShadow: '0 0 10px rgba(229, 9, 20, 0.5)',
-          },
-        }}
-      />
-      <App />
+      <MusicProvider>
+        <Toaster 
+          position="top-right" 
+          toastOptions={{
+            style: {
+              background: '#0B0C10',
+              color: '#fff',
+              border: '1px solid #E50914',
+              boxShadow: '0 0 10px rgba(229, 9, 20, 0.5)',
+            },
+          }}
+        />
+        <App />
+      </MusicProvider>
     </AuthProvider>
   </React.StrictMode>
 );
