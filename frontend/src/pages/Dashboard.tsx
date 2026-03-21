@@ -8,6 +8,7 @@ import TargetsDashboard from '../components/TargetsDashboard';
 import PlannerView from '../components/PlannerView';
 import SubscriptionModal from '../components/SubscriptionModal';
 import { Toaster } from 'react-hot-toast';
+import StudyTrackerCard from '../components/StudyTrackerCard';
 
 export default function Dashboard() {
   const { mongoUser, logout } = useAuth();
@@ -136,6 +137,9 @@ export default function Dashboard() {
 
         {/* Main Content Scrolling Area */}
         <main className="flex-1 overflow-y-auto p-4 md:p-8 z-10 relative">
+          <div className="max-w-5xl mx-auto w-full">
+            <StudyTrackerCard />
+          </div>
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
