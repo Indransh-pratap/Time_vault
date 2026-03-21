@@ -1,6 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Pause, Square, Clock } from 'lucide-react';
 import api from '../lib/api';
+
+const LS_KEY_ELAPSED   = 'tv_timer_elapsed';
+const LS_KEY_SESSION   = 'tv_timer_sessionId';
+const LS_KEY_ACTIVE    = 'tv_timer_active';
+const LS_KEY_STARTED   = 'tv_timer_startedAt'; // epoch ms when timer last resumed
 
 const formatTime = (seconds: number) => {
   const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
@@ -9,129 +14,150 @@ const formatTime = (seconds: number) => {
   return `${h}:${m}:${s}`;
 };
 
+/** Restore elapsed from localStorage, correcting for time the tab was closed */
+const restoreElapsed = (): number => {
+  const savedElapsed  = Number(localStorage.getItem(LS_KEY_ELAPSED) || 0);
+  const savedActive   = localStorage.getItem(LS_KEY_ACTIVE) === 'true';
+  const savedStartedAt = Number(localStorage.getItem(LS_KEY_STARTED) || 0);
+  if (savedActive && savedStartedAt) {
+    const extraSeconds = Math.floor((Date.now() - savedStartedAt) / 1000);
+    return savedElapsed + extraSeconds;
+  }
+  return savedElapsed;
+};
+
 const StudyTrackerCard: React.FC = () => {
-  const [isActive, setIsActive] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
+  const [isActive,   setIsActive]   = useState(() => localStorage.getItem(LS_KEY_ACTIVE) === 'true');
+  const [elapsed,    setElapsed]    = useState(() => restoreElapsed());
+  const [sessionId,  setSessionId]  = useState<string | null>(() => localStorage.getItem(LS_KEY_SESSION));
   const [totalToday, setTotalToday] = useState(0);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  
-  const startTimeRef = useRef<number | null>(null);
 
+  // Track when this "run" started so we can compute elapsed accurately
+  const runStartRef = useRef<number>(Date.now() - elapsed * 1000);
+
+  // ── Persist to localStorage on every change ───────────────
   useEffect(() => {
-    fetchTodayTotal();
-  }, []);
-
-  const fetchTodayTotal = async () => {
-    try {
-      const { data } = await api.get('/timer/today');
-      const total = data.reduce((acc: number, session: any) => acc + (session.duration || 0), 0);
-      setTotalToday(total);
-    } catch (error) {
-      console.error('Failed to fetch today sessions', error);
-    }
-  };
-
+    localStorage.setItem(LS_KEY_ELAPSED, String(elapsed));
+  }, [elapsed]);
   useEffect(() => {
-    let interval: ReturnType<typeof setInterval>;
-    if (isActive) {
-      interval = setInterval(() => {
-        setElapsed(Math.floor((Date.now() - (startTimeRef.current || Date.now())) / 1000));
-      }, 1000);
-    }
-    return () => clearInterval(interval);
+    localStorage.setItem(LS_KEY_ACTIVE, String(isActive));
+    if (isActive) localStorage.setItem(LS_KEY_STARTED, String(runStartRef.current));
+  }, [isActive]);
+  useEffect(() => {
+    if (sessionId) localStorage.setItem(LS_KEY_SESSION, sessionId);
+    else           localStorage.removeItem(LS_KEY_SESSION);
+  }, [sessionId]);
+
+  // ── Tick ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isActive) return;
+    const id = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - runStartRef.current) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
   }, [isActive]);
 
-  const handleStart = async () => {
+  // ── Fetch today total ─────────────────────────────────────
+  const fetchTodayTotal = useCallback(async () => {
     try {
-      if (!sessionId) {
-        const date = new Date().toISOString().split('T')[0];
-        const { data } = await api.post('/timer/session', {
-          startTime: new Date(),
-          date
-        });
-        setSessionId(data._id);
-        startTimeRef.current = Date.now() - elapsed * 1000;
-      } else {
-        startTimeRef.current = Date.now() - elapsed * 1000;
-      }
-      setIsActive(true);
-    } catch (error) {
-      console.error('Failed to start session', error);
+      const { data } = await api.get('/timer/today');
+      const total = data.reduce((acc: number, s: any) => acc + (s.duration || 0), 0);
+      setTotalToday(total);
+    } catch {
+      /* silent — total is non-critical */
+    }
+  }, []);
+
+  useEffect(() => { fetchTodayTotal(); }, [fetchTodayTotal]);
+
+  // ── START — instant, sync to backend in background ────────
+  const handleStart = () => {
+    runStartRef.current = Date.now() - elapsed * 1000;
+    setIsActive(true); // INSTANT — doesn't wait for API
+
+    if (!sessionId) {
+      const date = new Date().toISOString().split('T')[0];
+      api.post('/timer/session', { startTime: new Date(), date })
+        .then(({ data }) => {
+          setSessionId(data._id);
+          localStorage.setItem(LS_KEY_SESSION, data._id);
+        })
+        .catch(err => console.error('[Timer] Session create failed (non-blocking):', err?.message));
     }
   };
 
-  const handlePause = async () => {
-    setIsActive(false);
+  // ── PAUSE — instant, sync in background ───────────────────
+  const handlePause = () => {
+    setIsActive(false); // INSTANT
+
     if (sessionId) {
-      try {
-        await api.put(`/timer/session/${sessionId}`, {
-          endTime: new Date(),
-          duration: elapsed
-        });
-        fetchTodayTotal();
-      } catch (error) {
-        console.error('Failed to pause session', error);
-      }
+      api.put(`/timer/session/${sessionId}`, { endTime: new Date(), duration: elapsed })
+        .then(() => fetchTodayTotal())
+        .catch(err => console.error('[Timer] Pause sync failed (non-blocking):', err?.message));
     }
   };
 
-  const handleStop = async () => {
-    setIsActive(false);
-    if (sessionId) {
-      try {
-        await api.put(`/timer/session/${sessionId}`, {
-          endTime: new Date(),
-          duration: elapsed
-        });
-        setElapsed(0);
-        setSessionId(null);
-        startTimeRef.current = null;
-        fetchTodayTotal();
-      } catch (error) {
-        console.error('Failed to stop session', error);
-      }
+  // ── STOP ──────────────────────────────────────────────────
+  const handleStop = () => {
+    setIsActive(false); // INSTANT
+    const finalElapsed = elapsed;
+    const finalId = sessionId;
+
+    setElapsed(0);
+    setSessionId(null);
+    runStartRef.current = Date.now();
+    localStorage.removeItem(LS_KEY_STARTED);
+
+    if (finalId) {
+      api.put(`/timer/session/${finalId}`, { endTime: new Date(), duration: finalElapsed })
+        .then(() => fetchTodayTotal())
+        .catch(err => console.error('[Timer] Stop sync failed (non-blocking):', err?.message));
     }
   };
+
+  const totalDisplay = totalToday + (isActive ? elapsed : 0);
 
   return (
-    <div className="bg-[#111] border border-[#E50914]/20 rounded-lg p-6 mb-8 flex flex-col md:flex-row items-center justify-between shadow-[0_4px_20px_rgba(0,0,0,0.5)] transition-all hover:border-[#E50914]/50 hover:shadow-[0_4px_25px_rgba(229,9,20,0.15)]">
-      <div className="flex items-center gap-4 mb-4 md:mb-0">
-        <div className="p-3 bg-[#E50914]/10 rounded-full border border-[#E50914]/30 shadow-[0_0_10px_rgba(229,9,20,0.2)]">
-          <Clock className="text-[#E50914]" size={28} />
+    <div className="bg-[#111] border border-[#E50914]/20 rounded-lg p-5 mb-8 flex flex-col md:flex-row items-center justify-between gap-4 shadow-[0_4px_20px_rgba(0,0,0,0.5)] hover:border-[#E50914]/50 hover:shadow-[0_4px_25px_rgba(229,9,20,0.15)] transition-all">
+      {/* Left — today total */}
+      <div className="flex items-center gap-4">
+        <div className="p-3 bg-[#E50914]/10 rounded-full border border-[#E50914]/30 shadow-[0_0_10px_rgba(229,9,20,0.2)] flex-shrink-0">
+          <Clock className="text-[#E50914]" size={24} />
         </div>
         <div>
-          <h3 className="text-gray-400 font-mono tracking-widest text-sm uppercase">Today's Study Time</h3>
-          <div className="text-2xl font-bold text-white tracking-wider font-mono">
-            {formatTime(totalToday + (isActive ? Math.floor((Date.now() - (startTimeRef.current || Date.now())) / 1000) - elapsed : 0))}
-          </div>
+          <h3 className="text-gray-400 font-mono tracking-widest text-xs uppercase">Today's Study Time</h3>
+          <div className="text-2xl font-bold text-white tracking-wider font-mono">{formatTime(totalDisplay)}</div>
         </div>
       </div>
 
-      <div className="flex items-center gap-6">
-        <div className={`text-4xl w-40 text-center font-mono font-bold tracking-widest ${isActive ? 'text-glitch text-[#E50914]' : 'text-gray-300'}`}>
+      {/* Right — session timer + controls */}
+      <div className="flex items-center gap-5">
+        <div className={`text-3xl md:text-4xl w-36 text-center font-mono font-bold tracking-widest select-none transition-colors ${isActive ? 'text-[#E50914]' : 'text-gray-400'}`}>
           {formatTime(elapsed)}
+          {isActive && <span className="ml-1 inline-block w-2 h-2 rounded-full bg-[#E50914] animate-ping" />}
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex gap-3 items-center">
           {!isActive ? (
-            <button 
+            <button
               onClick={handleStart}
-              className="w-12 h-12 flex items-center justify-center rounded-sm bg-[#111] border-2 border-green-500 text-green-500 hover:bg-green-500 hover:text-white hover:shadow-[0_0_15px_rgba(34,197,94,0.8)] transition-all"
+              className="w-12 h-12 flex items-center justify-center rounded-sm bg-[#111] border-2 border-green-500 text-green-500 hover:bg-green-500 hover:text-white hover:shadow-[0_0_15px_rgba(34,197,94,0.8)] active:scale-95 transition-all"
             >
-              <Play size={20} className="ml-1" fill="currentColor" />
+              <Play size={20} fill="currentColor" className="ml-0.5" />
             </button>
           ) : (
-            <button 
+            <button
               onClick={handlePause}
-              className="w-12 h-12 flex items-center justify-center rounded-sm bg-[#111] border-2 border-[#E50914] text-[#E50914] hover:bg-[#E50914] hover:text-white hover:shadow-[0_0_15px_rgba(229,9,20,0.8)] transition-all"
+              className="w-12 h-12 flex items-center justify-center rounded-sm bg-[#111] border-2 border-[#E50914] text-[#E50914] hover:bg-[#E50914] hover:text-white hover:shadow-[0_0_15px_rgba(229,9,20,0.8)] active:scale-95 transition-all"
             >
               <Pause size={20} fill="currentColor" />
             </button>
           )}
-          <button 
+
+          <button
             onClick={handleStop}
             disabled={elapsed === 0 && !isActive}
-            className="w-12 h-12 flex items-center justify-center rounded-sm bg-[#111] border border-gray-600 text-gray-500 hover:border-white hover:text-white transition-all disabled:opacity-30 disabled:hover:border-gray-600 disabled:hover:text-gray-500 disabled:cursor-not-allowed"
+            className="w-11 h-11 flex items-center justify-center rounded-sm bg-[#111] border border-gray-600 text-gray-500 hover:border-white hover:text-white active:scale-95 transition-all disabled:opacity-25 disabled:cursor-not-allowed"
           >
             <Square size={16} fill="currentColor" />
           </button>
