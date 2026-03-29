@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import api from '../lib/api';
 import TaskItem, { type Task } from './TaskItem';
-import { Plus, Zap } from 'lucide-react';
+import { Plus, Zap, ChevronLeft, ChevronRight, Calendar as CalendarIcon } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { toast } from 'react-hot-toast';
 import type { UseXPReturn } from '../hooks/useXP';
@@ -21,13 +21,15 @@ const TaskList = ({ xpHook }: TaskListProps) => {
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [loading,      setLoading]      = useState(true);
   const [xpPopups,     setXpPopups]     = useState<XPPopup[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const popupIdRef = useRef(0);
 
-  useEffect(() => { fetchTasks(); }, []);
+  useEffect(() => { fetchTasks(); }, [selectedDate]);
 
   const fetchTasks = async () => {
+    setLoading(true);
     try {
-      const res = await api.get('/tasks');
+      const res = await api.get(`/tasks?date=${selectedDate}`);
       setTasks(res.data);
     } catch (error) {
       console.error('Failed to fetch tasks', error);
@@ -57,7 +59,7 @@ const TaskList = ({ xpHook }: TaskListProps) => {
     setNewTaskTitle('');
 
     try {
-      const res = await api.post('/tasks', { title: tempTask.title, priority: 'medium' });
+      const res = await api.post('/tasks', { title: tempTask.title, priority: 'medium', date: selectedDate });
       setTasks(prev => prev.map(t => t._id === tempId ? res.data : t));
       toast.success('Objective created');
     } catch (error) {
@@ -122,12 +124,44 @@ const TaskList = ({ xpHook }: TaskListProps) => {
         </AnimatePresence>
       </div>
 
+      {/* Date Selector */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-3">
+          <CalendarIcon size={18} className="text-[#E50914]" />
+          <h3 className="text-sm font-bold font-mono tracking-widest text-[#E50914] uppercase drop-shadow-[0_0_8px_#E50914]">
+            {selectedDate === new Date().toISOString().split('T')[0] ? 'Today' : selectedDate}
+          </h3>
+        </div>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={() => { const d = new Date(selectedDate); d.setUTCDate(d.getUTCDate() - 1); setSelectedDate(d.toISOString().split('T')[0]); }} 
+            className="p-1 hover:bg-[#E50914]/10 rounded border border-transparent hover:border-[#E50914]/30 text-gray-400 hover:text-[#E50914] transition-all"
+          >
+            <ChevronLeft size={16} />
+          </button>
+          {selectedDate !== new Date().toISOString().split('T')[0] && (
+            <button 
+              onClick={() => setSelectedDate(new Date().toISOString().split('T')[0])} 
+              className="px-2 py-1 text-[10px] font-mono tracking-widest uppercase border border-gray-800 rounded hover:border-[#E50914]/50 hover:text-[#E50914] hover:bg-[#E50914]/5 transition-all shadow-sm"
+            >
+              Today
+            </button>
+          )}
+          <button 
+            onClick={() => { const d = new Date(selectedDate); d.setUTCDate(d.getUTCDate() + 1); setSelectedDate(d.toISOString().split('T')[0]); }} 
+            className="p-1 hover:bg-[#E50914]/10 rounded border border-transparent hover:border-[#E50914]/30 text-gray-400 hover:text-[#E50914] transition-all"
+          >
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      </div>
+
       <form onSubmit={handleCreateTask} className="flex gap-2">
         <input
           type="text"
           value={newTaskTitle}
           onChange={(e) => setNewTaskTitle(e.target.value)}
-          placeholder="Declare new objective..."
+          placeholder={`Declare new objective for ${selectedDate}...`}
           className="flex-1 bg-[#111] border-2 border-gray-800 text-white p-4 font-mono uppercase tracking-widest focus:outline-none focus:border-[#E50914] focus:shadow-[0_0_15px_rgba(229,9,20,0.3)] transition-all duration-300 placeholder:text-gray-600 rounded-sm"
         />
         <button

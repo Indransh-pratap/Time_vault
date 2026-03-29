@@ -1,203 +1,355 @@
-import { useState } from 'react';
-import { Music, Headphones, ListMusic, Play, Pause, Youtube, Plus, Volume2 } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { Music, Headphones, Play, Pause, Youtube, Plus, Volume2, Trash2, Library, PlayCircle, Radio, Maximize2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useMusic, type Track } from '../context/MusicContext';
-import toast from 'react-hot-toast';
+import { useState, useEffect } from 'react';
 
-// ─── Constants ───────────────────────────────────────────────────────────────
-
-const LOCAL_TRACKS: Track[] = [
-  { id: 'lofi',  title: 'Lofi Chill',  url: '/music/lofi.mp3',  type: 'local' },
-  { id: 'rain',  title: 'Rain Ambient', url: '/music/rain.mp3',  type: 'local' },
-  { id: 'focus', title: 'Deep Focus',  url: '/music/focus.mp3', type: 'local' },
+const DEFAULT_TRACKS: Track[] = [
+  { id: 'lofi',  title: 'Lofi Chill',  url: '/music/lofi.mp3',  type: 'local', author: 'TimeVault' },
+  { id: 'rain',  title: 'Rain Ambient', url: '/music/rain.mp3',  type: 'local', author: 'Nature' },
+  { id: 'focus', title: 'Deep Focus',  url: '/music/focus.mp3', type: 'local', author: 'Brain' },
 ];
-
-const PRESETS = [
-  { name: 'Lofi', icon: '🎧', color: '#ff6b35' },
-  { name: 'Rain', icon: '🌧️', color: '#45A29E' },
-  { name: 'Zen',  icon: '🧘', color: '#66FCF1' },
-];
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 export default function FocusMusic() {
-  const { currentTrack, isPlaying, volume, setTrack, play, pause, setVolume } = useMusic();
+  const { 
+    currentTrack, isPlaying, volume, playlist,
+    play, pause, setTrack, setVolume, 
+    fetchMetadata, addToPlaylist, removeFromPlaylist 
+  } = useMusic();
+
   const [ytUrl, setYtUrl] = useState('');
+  const [, setLoadingMetadata] = useState(false);
+  const [previewTrack, setPreviewTrack] = useState<Partial<Track> | null>(null);
+  
+  // Simulated Progress state
+  const [progress, setProgress] = useState(0);
 
-  const handleAddYoutube = () => {
-    const match = ytUrl.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/);
-    const videoId = match ? match[1] : null;
+  // Extract Video ID helper
+  const getVid = (url: string) => {
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[2].length === 11) ? match[2] : null;
+  };
 
-    if (videoId) {
-      const newTrack: Track = {
-        id: `yt-${videoId}`,
-        title: 'YouTube Audio',
-        url: videoId,
-        type: 'youtube',
-      };
-      setTrack(newTrack);
-      setYtUrl('');
-      toast.success('YouTube track loaded!');
+  const handleUrlChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setYtUrl(val);
+    const vid = getVid(val);
+    if (vid) {
+      setLoadingMetadata(true);
+      const meta = await fetchMetadata(vid);
+      setPreviewTrack({ ...meta, id: vid, url: vid, type: 'youtube' });
+      setLoadingMetadata(false);
     } else {
-      toast.error('Invalid YouTube URL');
+      setPreviewTrack(null);
     }
   };
 
+  const handleAddPreview = async () => {
+    if (previewTrack && previewTrack.id) {
+      await addToPlaylist(previewTrack as Track);
+      setYtUrl('');
+      setPreviewTrack(null);
+    }
+  };
+
+  // ── Simulated Progress Logic ───────────────────────────────────────────────
+  useEffect(() => {
+    let interval: any;
+    if (isPlaying) {
+      interval = setInterval(() => {
+        setProgress((prev) => (prev >= 100 ? 0 : prev + 0.1));
+      }, 1000);
+    } else {
+      clearInterval(interval);
+    }
+    return () => clearInterval(interval);
+  }, [isPlaying]);
+
+  // Reset progress when track changes
+  useEffect(() => {
+    setProgress(0);
+  }, [currentTrack.url]);
+
   return (
-    <div className="space-y-8 max-w-4xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold uppercase tracking-widest text-white font-mono flex items-center gap-3">
-            <Headphones className="text-cyan-400" /> Focus Music
+    <div className="space-y-8 pb-20 max-w-7xl mx-auto px-4">
+      {/* Premium Header / Search Section */}
+      <section className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-black text-white uppercase tracking-[0.2em] flex items-center gap-3 drop-shadow-[0_0_15px_rgba(255,255,255,0.1)]">
+            <Radio className="text-[#E50914] animate-pulse" size={28} /> Focus Studio
           </h2>
-          <p className="text-xs text-gray-500 font-mono mt-1 uppercase tracking-wider">
-            Curated audio to lock in your concentration
-          </p>
+          <span className="text-[10px] font-mono text-gray-600 uppercase tracking-widest bg-white/5 px-3 py-1 rounded-full border border-white/5">
+            Phase 19.4 / Neon
+          </span>
         </div>
-      </div>
 
-      {/* Main Player Card */}
-      <div className="relative overflow-hidden group">
-        <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/10 to-transparent pointer-events-none" />
-        <div className="glass-card border border-white/5 p-8 flex flex-col md:flex-row items-center gap-8 relative z-10 transition-all group-hover:border-cyan-500/20">
+        <div className="relative group">
+          <Youtube className="absolute left-5 top-1/2 -translate-y-1/2 text-[#E50914] transition-transform group-focus-within:scale-110" size={20} />
+          <input
+            type="text"
+            placeholder="Search or paste YouTube music link..."
+            value={ytUrl}
+            onChange={handleUrlChange}
+            className="w-full bg-[#050505]/80 border border-white/5 rounded-3xl pl-14 pr-6 py-5 text-sm font-mono text-white focus:outline-none focus:border-[#E50914]/50 focus:ring-4 focus:ring-[#E50914]/5 transition-all shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)]"
+          />
+          <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
+             <kbd className="hidden md:block px-2 py-1 bg-white/5 rounded border border-white/10 text-[8px] font-mono text-gray-500 tracking-tighter uppercase">Enter URL</kbd>
+          </div>
+        </div>
+
+        <AnimatePresence>
+          {previewTrack && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: -10 }}
+              className="p-5 rounded-3xl bg-gradient-to-r from-[#E50914]/20 via-[#E50914]/5 to-transparent border border-[#E50914]/30 shadow-[0_10px_30px_rgba(229,9,20,0.15)] backdrop-blur-md flex items-center justify-between"
+            >
+              <div className="flex items-center gap-6">
+                <div className="relative">
+                  <img src={previewTrack.thumbnail} className="w-24 h-16 rounded-xl object-cover shadow-2xl ring-1 ring-white/10" alt="" />
+                  <div className="absolute -top-2 -left-2 bg-[#E50914] text-white p-1 rounded-lg text-[8px] font-bold uppercase">New Track</div>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <span className="text-base font-mono font-black text-white tracking-tight truncate max-w-[200px] md:max-w-md">{previewTrack.title}</span>
+                  <div className="flex items-center gap-2 text-[10px] font-mono text-gray-400 uppercase tracking-widest">
+                    <span className="text-[#E50914]/60">Channel:</span>
+                    <span className="text-white/80">{previewTrack.author}</span>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={handleAddPreview}
+                className="group flex flex-col items-center gap-2"
+              >
+                <div className="p-4 rounded-2xl bg-[#E50914] text-white group-hover:bg-[#ff1e1e] group-active:scale-95 transition-all shadow-[0_8px_20px_rgba(229,9,20,0.4)]">
+                   <Plus size={24} />
+                </div>
+                <span className="text-[8px] font-mono text-gray-500 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">Add to playlist</span>
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </section>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+        
+        {/* Main Content: Library & Local */}
+        <div className="lg:col-span-2 space-y-12">
           
-          {/* Visualizer Mock / Album Art */}
-          <div className="w-48 h-48 rounded-2xl bg-black border border-white/10 flex items-center justify-center relative overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
-            <div className={`absolute inset-0 bg-cyan-500/5 transition-opacity ${isPlaying ? 'opacity-100' : 'opacity-0'}`} />
-            <div className="p-10 border-2 border-dashed border-gray-800 rounded-full animate-spin-slow">
-              <div className="p-8 border-2 border-gray-900 rounded-full">
-                <Music size={40} className={isPlaying ? 'text-cyan-400' : 'text-gray-700'} />
-              </div>
-            </div>
-            {isPlaying && (
-              <div className="absolute bottom-4 flex items-end gap-1 h-8">
-                {[0.4, 0.8, 0.5, 1, 0.6, 0.9].map((h, i) => (
-                  <motion.div
-                    key={i}
-                    animate={{ height: [`${h*100}%`, '20%', `${h*100}%`] }}
-                    transition={{ duration: 0.6, repeat: Infinity, delay: i * 0.1 }}
-                    className="w-1 bg-cyan-500/60 rounded-full"
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Player Info & Controls */}
-          <div className="flex-1 space-y-6 w-full text-center md:text-left">
-            <div>
-              <span className="px-2 py-0.5 rounded-sm bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 text-[10px] font-mono uppercase tracking-[0.2em] mb-2 inline-block">
-                Now Playing
-              </span>
-              <h3 className="text-2xl font-bold text-white font-mono tracking-wider truncate max-w-md">
-                {currentTrack.title}
+          {/* User Playlist */}
+          <section className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-[11px] font-mono font-black uppercase tracking-[0.4em] text-gray-500 flex items-center gap-3">
+                <Library className="text-[#E50914]" size={16} /> Persistent Library
               </h3>
-              <p className="text-xs text-gray-500 font-mono uppercase tracking-widest mt-1">
-                Source: {currentTrack.type}
-              </p>
+              <span className="text-[9px] font-mono text-gray-700">{playlist.length} Tracks Syncing</span>
             </div>
 
-            {/* Progress / Volume Mock */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-4">
-                <button onClick={() => setVolume(Math.max(0, volume - 0.1))} className="text-gray-600 hover:text-white transition-colors">
-                  <Volume2 size={16} />
-                </button>
-                <div className="flex-1 h-1.5 bg-white/5 rounded-full overflow-hidden relative group/vol cursor-pointer">
-                  <input
-                    type="range" min="0" max="1" step="0.01" value={volume}
-                    onChange={(e) => setVolume(parseFloat(e.target.value))}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                  />
-                  <div className="absolute top-0 left-0 h-full bg-cyan-500 transition-all" style={{ width: `${volume * 100}%` }} />
+            <div className="grid grid-cols-1 gap-4">
+              {playlist.length === 0 ? (
+                <div className="p-16 rounded-[2.5rem] border border-dashed border-white/5 bg-white/2 text-center space-y-4">
+                  <div className="p-5 rounded-full bg-white/3 w-fit mx-auto">
+                    <Headphones size={40} className="text-gray-800" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs font-mono text-gray-400 uppercase tracking-[0.2em] font-bold">Your library is silent</p>
+                    <p className="text-[10px] font-mono text-gray-700 tracking-wider">Paste a YouTube link above to start building your focus collection.</p>
+                  </div>
                 </div>
-                <span className="text-[10px] font-mono text-gray-600 tabular-nums">{Math.round(volume * 100)}%</span>
+              ) : (
+                playlist.map((track) => (
+                  <motion.div
+                    key={track._id}
+                    layout
+                    whileHover={{ x: 5 }}
+                    className={`group p-4 rounded-[1.5rem] border transition-all flex items-center justify-between
+                      ${currentTrack.url === track.url 
+                        ? 'bg-[#E50914]/10 border-[#E50914]/40 shadow-[0_10px_30px_rgba(229,9,20,0.05)]' 
+                        : 'bg-[#050505] border-white/5 hover:border-white/10 hover:bg-white/3'}
+                    `}
+                  >
+                    <div className="flex items-center gap-5 cursor-pointer flex-1" onClick={() => setTrack(track)}>
+                      <div className="relative shrink-0">
+                        <img src={track.thumbnail} className="w-16 h-12 rounded-xl object-cover shadow-2xl border border-white/5" alt="" />
+                        {currentTrack.url === track.url && isPlaying && (
+                          <div className="absolute inset-0 bg-[#E50914]/30 backdrop-blur-[2px] flex items-center justify-center rounded-xl">
+                            <div className="flex items-end gap-[2px] h-4">
+                               <motion.div animate={{ height: [4, 12, 4] }} transition={{ repeat: Infinity, duration: 0.5 }} className="w-1 bg-white rounded-full" />
+                               <motion.div animate={{ height: [8, 4, 12] }} transition={{ repeat: Infinity, duration: 0.6 }} className="w-1 bg-white rounded-full" />
+                               <motion.div animate={{ height: [12, 6, 8] }} transition={{ repeat: Infinity, duration: 0.4 }} className="w-1 bg-white rounded-full" />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className={`text-sm font-mono font-black truncate transition-colors
+                          ${currentTrack.url === track.url ? 'text-[#E50914]' : 'text-white/80 group-hover:text-white'}
+                        `}>
+                          {track.title}
+                        </span>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-[9px] font-mono text-gray-500 uppercase tracking-widest truncate">{track.author}</span>
+                          {currentTrack.url === track.url && <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-[#E50914]/20 text-[#E50914] font-black uppercase tracking-tighter">Live</span>}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-3">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); removeFromPlaylist(track._id!); }}
+                        className="p-2.5 rounded-xl text-gray-700 hover:text-[#E50914] hover:bg-[#E50914]/10 transition-all opacity-0 group-hover:opacity-100"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); if (currentTrack.url === track.url) isPlaying ? pause() : play(); else setTrack(track); }}
+                        className={`p-3 rounded-2xl transition-all shadow-lg
+                          ${currentTrack.url === track.url 
+                            ? 'bg-[#E50914] text-white shadow-[#E50914]/20' 
+                            : 'bg-white/5 text-white hover:bg-white/10'}
+                        `}
+                      >
+                        {currentTrack.url === track.url && isPlaying ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" className="ml-0.5" />}
+                      </button>
+                    </div>
+                  </motion.div>
+                ))
+              )}
+            </div>
+          </section>
+
+          {/* Local / Preset Library */}
+          <section className="space-y-6">
+            <h3 className="text-[11px] font-mono font-black uppercase tracking-[0.4em] text-gray-500 flex items-center gap-3">
+              <Plus className="text-gray-700" size={16} /> Systems Originals
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              {DEFAULT_TRACKS.map((track) => (
+                <div
+                  key={track.id}
+                  onClick={() => setTrack(track)}
+                  className={`p-5 rounded-[2rem] border cursor-pointer transition-all flex flex-col gap-4 text-center group
+                    ${currentTrack.url === track.url ? 'bg-[#E50914]/10 border-[#E50914]/30' : 'bg-[#050505] border-white/5 hover:border-white/10 hover:bg-white/2'}
+                  `}
+                >
+                  <div className={`p-4 rounded-3xl mx-auto transition-all group-hover:scale-110 ${currentTrack.url === track.url ? 'bg-[#E50914] text-white' : 'bg-white/5 text-gray-600'}`}>
+                    <Music size={24} />
+                  </div>
+                  <div className="space-y-1">
+                    <p className={`text-[11px] font-mono font-black uppercase tracking-wider ${currentTrack.url === track.url ? 'text-[#E50914]' : 'text-gray-400'}`}>
+                      {track.title}
+                    </p>
+                    <p className="text-[8px] font-mono text-gray-700 uppercase tracking-widest group-hover:text-[#E50914]/40 transition-colors">Internal Buffer</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+
+        {/* Sidebar: Now Playing & Professional Controls */}
+        <div className="space-y-6">
+          <div className="p-8 rounded-[2.5rem] bg-[#050505] border border-white/5 space-y-8 sticky top-6 shadow-2xl relative overflow-hidden group/sidebar">
+            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover/sidebar:opacity-20 transition-opacity">
+               <Music size={120} className="rotate-12" />
+            </div>
+
+            <h3 className="text-[10px] font-mono uppercase tracking-[0.5em] text-gray-600 font-bold text-center">Engine Status</h3>
+            
+            <div className="space-y-6 text-center relative z-10">
+              {currentTrack.thumbnail ? (
+                <div className="relative group/cover">
+                  <img src={currentTrack.thumbnail} className="w-full aspect-square rounded-3xl object-cover shadow-[0_20px_50px_rgba(0,0,0,0.8)] border border-white/5 transition-transform group-hover/cover:scale-105" alt="" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent rounded-3xl opacity-0 group-hover/cover:opacity-100 transition-opacity flex items-center justify-center">
+                     <div className="p-4 rounded-full bg-white/10 backdrop-blur-xl border border-white/20">
+                        <Maximize2 className="text-white" size={24} />
+                     </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="w-full aspect-square rounded-3xl bg-[#0B0C10] flex items-center justify-center border border-dashed border-white/10">
+                  <PlayCircle size={64} className="text-gray-800 animate-pulse" />
+                </div>
+              )}
+              
+              <div className="space-y-2">
+                <h4 className="text-xl font-mono font-black text-white leading-tight px-2">{currentTrack.title}</h4>
+                <div className="flex items-center justify-center gap-2">
+                   <Youtube size={12} className="text-[#E50914]" />
+                   <p className="text-[10px] font-mono text-[#E50914] uppercase tracking-[0.3em] font-black">{currentTrack.author || 'Internal'}</p>
+                </div>
               </div>
             </div>
 
-            <div className="flex items-center justify-center md:justify-start gap-6 pt-2">
-              <button 
-                onClick={isPlaying ? pause : play}
-                className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${
-                  isPlaying 
-                    ? 'bg-cyan-500 text-black shadow-[0_0_25px_rgba(6,182,212,0.4)] hover:scale-105' 
-                    : 'bg-white/5 border border-white/20 text-white hover:border-cyan-500/50 hover:bg-cyan-500/5 hover:scale-105'
-                }`}
-              >
-                {isPlaying ? <Pause size={24} fill="currentColor" /> : <Play size={24} fill="currentColor" className="ml-1" />}
-              </button>
+            {/* Simulated Progress Bar */}
+            <div className="space-y-3 pt-4 border-t border-white/5 relative z-10">
+               <div className="flex items-center justify-between text-[8px] font-mono text-gray-600 uppercase tracking-widest">
+                  <span>Playback Position</span>
+                  <span className="text-white/40">{Math.floor(progress)}% Optimized</span>
+               </div>
+               <div className="h-1 bg-white/5 rounded-full overflow-hidden relative">
+                  <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: `${progress}%` }}
+                    className="absolute top-0 left-0 h-full bg-[#E50914] shadow-[0_0_10px_#E50914]"
+                  />
+               </div>
             </div>
-          </div>
-        </div>
-      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Local library */}
-        <div className="space-y-4">
-          <h3 className="text-sm font-mono uppercase tracking-widest text-[#E50914] flex items-center gap-2">
-            <ListMusic size={16} /> Internal Library
-          </h3>
-          <div className="space-y-2">
-            {LOCAL_TRACKS.map((track) => (
-              <button
-                key={track.id}
-                onClick={() => setTrack(track)}
-                className={`w-full flex items-center justify-between p-4 rounded-sm border transition-all ${
-                  currentTrack.id === track.id
-                    ? 'bg-cyan-500/5 border-cyan-500/40 text-cyan-400'
-                    : 'bg-[#0f0f0f] border-white/5 text-gray-500 hover:border-white/10 hover:text-gray-300'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Music size={14} className={currentTrack.id === track.id ? 'text-cyan-400' : 'text-gray-700'} />
-                  <span className="text-xs font-mono font-bold uppercase tracking-wider">{track.title}</span>
+            <div className="space-y-6 relative z-10">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between text-[9px] font-mono text-gray-500 uppercase tracking-[0.2em] font-bold">
+                  <span>Output Mix</span>
+                  <span className="text-[#E50914]">{Math.round(volume * 100)}%</span>
                 </div>
-                {currentTrack.id === track.id && isPlaying && (
-                   <span className="text-[9px] font-mono text-cyan-400 uppercase tracking-widest animate-pulse">Active</span>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
+                <div className="flex items-center gap-4">
+                  <Volume2 size={18} className="text-gray-600" />
+                  <div className="flex-1 h-2 bg-white/5 rounded-full overflow-hidden relative cursor-pointer group/vol">
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.01"
+                      value={volume}
+                      onChange={(e) => setVolume(parseFloat(e.target.value))}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                    />
+                    <div className="absolute top-0 left-0 h-full bg-gradient-to-r from-[#E50914]/50 to-[#E50914] shadow-[0_0_15px_rgba(229,9,20,0.4)] transition-all" style={{ width: `${volume * 100}%` }} />
+                    <div className="absolute top-1/2 -translate-y-1/2 h-3 w-1 bg-white rounded-full opacity-0 group-hover/vol:opacity-100 transition-opacity" style={{ left: `calc(${volume * 100}% - 2px)` }} />
+                  </div>
+                </div>
+              </div>
 
-        {/* YouTube addition */}
-        <div className="space-y-4">
-          <h3 className="text-sm font-mono uppercase tracking-widest text-red-600 flex items-center gap-2">
-            <Youtube size={16} /> Link Stream
-          </h3>
-          <div className="glass-card border border-white/5 p-6 space-y-4 bg-red-900/5 transition-all hover:border-red-500/20">
-            <p className="text-[11px] font-mono text-gray-500 leading-relaxed uppercase tracking-wider">
-              Paste a YouTube URL to stream any track directly into your session.
-            </p>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="https://youtube.com/watch?v=..."
-                value={ytUrl}
-                onChange={(e) => setYtUrl(e.target.value)}
-                className="flex-1 bg-black border border-white/10 rounded-sm px-4 py-2.5 text-xs font-mono text-gray-300 focus:outline-none focus:border-red-500/50"
-              />
               <button
-                onClick={handleAddYoutube}
-                className="px-4 py-2.5 bg-red-600 text-white font-mono uppercase tracking-widest text-xs font-black transition-all hover:bg-red-700 shadow-[0_0_15px_rgba(220,38,38,0.2)] active:scale-95"
+                onClick={isPlaying ? pause : play}
+                className={`w-full py-5 rounded-2xl font-mono font-black uppercase tracking-[0.4em] text-[11px] transition-all relative overflow-hidden group/btn flex items-center justify-center gap-3
+                  ${isPlaying 
+                    ? 'bg-white/5 text-gray-500 border border-white/5 shadow-none' 
+                    : 'bg-[#E50914] text-white shadow-[0_15px_40px_rgba(229,9,20,0.3)] hover:scale-[1.02] hover:bg-[#ff1e1e]'}
+                `}
               >
-                <Plus size={16} />
+                {isPlaying ? (
+                  <>
+                    <Pause size={16} fill="currentColor" />
+                    <span>Engaged</span>
+                  </>
+                ) : (
+                  <>
+                    <Play size={16} fill="currentColor" className="ml-0.5" />
+                    <span>Ignite Focus</span>
+                  </>
+                )}
+                {/* Glossy overlay effect */}
+                <div className="absolute inset-0 bg-gradient-to-t from-white/10 to-transparent pointer-events-none" />
               </button>
             </div>
-          </div>
 
-          <div className="grid grid-cols-3 gap-3">
-            {PRESETS.map((p) => (
-              <button
-                key={p.name}
-                onClick={() => toast.success(`Preset '${p.name}' selected (Stub)`)}
-                className="bg-black border border-white/5 p-4 rounded-sm flex flex-col items-center gap-2 hover:border-white/20 transition-all opacity-50 cursor-pointer group"
-              >
-                <span className="text-xl group-hover:scale-125 transition-transform">{p.icon}</span>
-                <span className="text-[9px] font-mono text-gray-600 uppercase tracking-widest">{p.name}</span>
-              </button>
-            ))}
+            <div className="pt-6 text-center">
+               <p className="text-[8px] font-mono text-gray-800 uppercase tracking-widest leading-relaxed">
+                  Neural Sync Active <br /> SSL Protected Flow
+               </p>
+            </div>
           </div>
         </div>
       </div>

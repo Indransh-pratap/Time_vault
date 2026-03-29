@@ -5,6 +5,8 @@ import NotFound from './pages/NotFound';
 import ProtectedRoute from './components/ProtectedRoute';
 import { SocketProvider } from './context/SocketContext';
 
+import ContactView from './pages/ContactView';
+
 function App() {
   return (
     <SocketProvider>
@@ -15,6 +17,7 @@ function App() {
           <Route element={<ProtectedRoute />}>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/contact" element={<ContactView />} />
           </Route>
 
           {/* Catch-all: show 404 for any unmatched route */}

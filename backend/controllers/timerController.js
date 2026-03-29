@@ -1,4 +1,5 @@
 const TimeSession = require('../models/TimeSession');
+const DailyTime = require('../models/DailyTime');
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -84,8 +85,21 @@ const updateSession = async (req, res) => {
     await session.save();
     console.log(`[Timer] Session saved — id:${session._id} duration:${session.duration}s date:${session.date}`);
 
-    // Broadcast updated daily total via Socket.io
+    // Update DailyTime tracking Day-Wise
+    await DailyTime.findOneAndUpdate(
+      { userId, date: session.date },
+      {
+        $inc: { totalTime: session.duration },
+        $push: { sessions: { startTime: session.startTime, endTime: session.endTime, duration: session.duration } }
+      },
+      { new: true, upsert: true }
+    );
+
     const io = req.app.get('io');
+    const { calculateAndUpdateStreak } = require('../services/streakService');
+    await calculateAndUpdateStreak(userId, session.date, io);
+
+    // Broadcast updated daily total via Socket.io
     if (io) emitStudySync(io, userId, session.date);
 
     res.status(200).json(session);

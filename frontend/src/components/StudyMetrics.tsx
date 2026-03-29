@@ -17,7 +17,7 @@ interface StatsData {
   endDate:   string;
 }
 interface AnalyticsData {
-  heatmap:       Record<string, number>;
+  heatmap: Record<string, { isActiveDay: boolean; totalStudyTime: number; completionRate: number; tasksCompleted: number; }>;
   totalTimeSpent: number;
   totalCompleted: number;
   studyStats:    { todaySeconds: number; weekSeconds: number; monthSeconds: number };
@@ -56,15 +56,14 @@ const RANGE_LABELS: { id: Range; label: string }[] = [
 
 // ─── Heatmap (kept intact from existing AnalyticsHeatmap) ────────────────────
 
-function Heatmap({ heatmap }: { heatmap: Record<string, number> }) {
+function Heatmap({ heatmap }: { heatmap: AnalyticsData['heatmap'] }) {
   const today = new Date();
   const days  = Array.from({ length: 90 }, (_, i) => format(subDays(today, 89 - i), 'yyyy-MM-dd'));
 
-  const getClass = (count: number) => {
-    if (count === 0) return 'bg-[#0B0C10] border-gray-800';
-    if (count < 3)   return 'bg-[#8b0000]/60 border-transparent shadow-[0_0_5px_rgba(139,0,0,0.5)]';
-    if (count < 6)   return 'bg-[#E50914] border-transparent shadow-[0_0_10px_rgba(229,9,20,0.8)]';
-    return 'bg-[#ff4444] border-transparent shadow-[0_0_15px_rgba(255,68,68,1)] animate-pulse';
+  const getClass = (isActive: boolean) => {
+    return isActive 
+      ? 'bg-[#E50914] border-transparent shadow-[0_0_10px_rgba(229,9,20,0.8)] animate-pulse'
+      : 'bg-[#0B0C10] border-gray-800';
   };
 
   return (
@@ -73,13 +72,18 @@ function Heatmap({ heatmap }: { heatmap: Record<string, number> }) {
       <div className="w-full overflow-x-auto pb-2 custom-scrollbar">
         <div className="flex flex-wrap gap-1.5 min-w-[600px] bg-[#050505] p-4 rounded-sm border border-gray-900">
           {days.map((day) => {
-            const count = heatmap[day] || 0;
+            const dayData = heatmap[day];
+            const isActive = dayData?.isActiveDay ?? false;
+            const studyHours = dayData ? (dayData.totalStudyTime / 3600).toFixed(1) + 'h' : '0h';
+            const compRate = dayData ? Math.round(dayData.completionRate * 100) : 0;
+            const tasksDone = dayData ? dayData.tasksCompleted : 0;
+            
             return (
               <div key={day}
-                className={`w-4 h-4 rounded-sm border ${getClass(count)} transition-all duration-300 hover:scale-150 hover:z-10 cursor-crosshair relative group`}
+                className={`w-4 h-4 rounded-sm border ${getClass(isActive)} transition-all duration-300 hover:scale-150 hover:z-10 cursor-crosshair relative group`}
               >
                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max px-3 py-1 bg-black border border-[#E50914] text-[#E50914] text-[10px] font-mono tracking-widest uppercase opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 shadow-[0_0_15px_rgba(229,9,20,0.5)]">
-                  {day} · {count} tasks
+                  {day} · {studyHours} study | {compRate}% tasks done ({tasksDone})
                 </div>
               </div>
             );
@@ -167,15 +171,20 @@ export default function StudyMetrics() {
 
   useEffect(() => { fetchStats(range); }, [range, fetchStats]);
 
-  // ── Real-time: update today total on study:sync ───────────────────────────
+  // ── Real-time: update metrics on metrics:update ───────────────────────────
   useEffect(() => {
     if (!socket) return;
-    const handler = (_data: unknown) => {
-      // Refresh stats silently on any study:sync event
+    const fetchAll = () => {
       fetchStats(range);
+      api.get<AnalyticsData>('/analytics').then(({ data }) => setAnalytics(data)).catch(()=>{});
     };
-    socket.on('study:sync', handler);
-    return () => { socket.off('study:sync', handler); };
+    
+    socket.on('study:sync', fetchAll);
+    socket.on('metrics:update', fetchAll);
+    return () => { 
+      socket.off('study:sync', fetchAll); 
+      socket.off('metrics:update', fetchAll); 
+    };
   }, [socket, range, fetchStats]);
 
   const maxSec = Math.max(...(stats?.dailyBreakdown.map(d => d.totalSeconds) ?? [0]), 1);

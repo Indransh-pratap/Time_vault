@@ -1,30 +1,43 @@
 const Task        = require('../models/Task');
 const TimeSession = require('../models/TimeSession');
+const DailyTime   = require('../models/DailyTime');
 
 const getAnalytics = async (req, res) => {
   try {
     const userId = req.user.uid;
 
-    // ── Task heatmap (existing logic, unchanged) ────────────────────────────
-    const tasks = await Task.find({ userId });
-
-    let totalTime = 0;
-    const heatmap = {};
-
-    tasks.forEach(task => {
-      totalTime += task.timeSpent || 0;
-      if (task.completed && task.createdAt) {
-        const dateString = new Date(task.createdAt).toISOString().split('T')[0];
-        heatmap[dateString] = (heatmap[dateString] || 0) + 1;
-      }
-    });
-
-    // ── Study session stats (new) ───────────────────────────────────────────
-    const today = new Date().toISOString().split('T')[0];
+    // ── Task heatmap (Upgraded logic via DailyTime) ────────────────────
+    const todayStr = new Date().toISOString().split('T')[0];
     const dayOffset = (n) => {
       const d = new Date(Date.now() - n * 86_400_000);
       return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     };
+
+    const ninetyDaysAgo = dayOffset(90);
+    const dailyMetrics = await DailyTime.find({
+      userId,
+      date: { $gte: ninetyDaysAgo, $lte: todayStr }
+    });
+
+    const heatmap = {};
+    let totalTime = 0;
+    let totalCompleted = 0;
+
+    dailyMetrics.forEach(metric => {
+      heatmap[metric.date] = {
+        isActiveDay: metric.isActiveDay,
+        totalStudyTime: metric.totalTime,
+        completionRate: metric.completionRate,
+        tasksCompleted: metric.tasksCompleted
+      };
+      totalTime += metric.totalTime;
+      totalCompleted += metric.tasksCompleted;
+    });
+
+    const totalMissed = await Task.countDocuments({ userId, missed: true });
+
+    // ── Study session stats (new) ───────────────────────────────────────────
+    const today = new Date().toISOString().split('T')[0];
 
     const [todayAgg, weekAgg, monthAgg] = await Promise.all([
       TimeSession.aggregate([
@@ -43,8 +56,8 @@ const getAnalytics = async (req, res) => {
 
     res.json({
       totalTimeSpent:  totalTime,
-      totalCompleted:  tasks.filter(t => t.completed).length,
-      totalMissed:     tasks.filter(t => t.missed).length,
+      totalCompleted:  totalCompleted,
+      totalMissed:     totalMissed,
       heatmap,
       studyStats: {
         todaySeconds:  todayAgg[0]?.total  ?? 0,

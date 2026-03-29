@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   LogOut, LayoutDashboard, Calendar, Target, Activity,
-  Menu, X, Zap, Bell, Music, StickyNote, Maximize2, Clock,
+  Menu, X, Zap, Bell, Music, StickyNote, Maximize2, Clock, MessageSquare, User,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import TaskList from '../components/TaskList';
@@ -14,15 +15,18 @@ import { Toaster } from 'react-hot-toast';
 import AlarmClock from '../components/AlarmClock';
 import FocusMusic from '../components/FocusMusic';
 import NotesView from '../components/NotesView';
+import ProfileView from '../components/ProfileView';
 import XPBar from '../components/XPBar';
 import FloatingTimer from '../components/FloatingTimer';
 import FloatingMusicPlayer from '../components/FloatingMusicPlayer';
 import FocusMode from '../components/FocusMode';
+
 import { useXP } from '../hooks/useXP';
 import { useSocket } from '../context/SocketContext';
 import api from '../lib/api';
+import Chat_bot from '../components/AI_chat_bot';
 
-type TabId = 'tasks' | 'planner' | 'targets' | 'analytics' | 'alarm' | 'music' | 'notes';
+type TabId = 'tasks' | 'planner' | 'targets' | 'analytics' | 'alarm' | 'music' | 'notes' | 'profile' |'chatbot';
 
 const fmtTime = (s: number) => {
   const h = Math.floor(s / 3600).toString().padStart(2, '0');
@@ -30,6 +34,8 @@ const fmtTime = (s: number) => {
   const sec = (s % 60).toString().padStart(2, '0');
   return `${h}:${m}:${sec}`;
 };
+
+import toast from 'react-hot-toast';
 
 const TZ_OFFSET = new Date().getTimezoneOffset() * -1;
 
@@ -57,15 +63,31 @@ export default function Dashboard() {
   }, [fetchTodayStudy]);
 
   // Real-time update for today's study time in header
+  const handleStudyUpdate = useCallback((data: { total?: number }) => {
+    if (data.total !== undefined) setTodayStudy(data.total);
+    else fetchTodayStudy();
+  }, [fetchTodayStudy]);
+
   useEffect(() => {
     if (!socket) return;
-    const handler = (data: { total?: number }) => {
-      if (data.total !== undefined) setTodayStudy(data.total);
-      else fetchTodayStudy();
+    socket.on('study:sync', handleStudyUpdate);
+    return () => { socket.off('study:sync', handleStudyUpdate); };
+  }, [socket, handleStudyUpdate]);
+
+  // ── Background / Visibility Tracking ──────────────────────────────────────
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        toast('Background limit: Keep app open for best experience', {
+          icon: '⚠️',
+          duration: 4000,
+          style: { background: '#111', color: '#ffcc00', border: '1px solid #ffcc00', fontSize: '12px' }
+        });
+      }
     };
-    socket.on('study:sync', handler);
-    return () => { socket.off('study:sync', handler); };
-  }, [socket, fetchTodayStudy]);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
 
   const tabs: { id: TabId; label: string; icon: React.ElementType }[] = [
     { id: 'tasks',     label: 'Directives',  icon: LayoutDashboard },
@@ -75,6 +97,9 @@ export default function Dashboard() {
     { id: 'alarm',     label: 'Alarm',       icon: Bell },
     { id: 'notes',     label: 'Notes',       icon: StickyNote },
     { id: 'music',     label: 'Focus Music', icon: Music },
+    { id: 'profile',   label: 'Profile',     icon: User },
+    { id: 'chatbot', label: 'Chatbot', icon: MessageSquare },
+
   ];
 
   const renderContent = () => {
@@ -86,6 +111,9 @@ export default function Dashboard() {
       case 'alarm':     return <AlarmClock />;
       case 'notes':     return <NotesView />;
       case 'music':     return <FocusMusic />;
+      case 'profile':   return <ProfileView />;
+    case 'chatbot':
+  return <Chat_bot />;
       default:          return <TaskList xpHook={xp} />;
     }
   };
@@ -129,6 +157,17 @@ export default function Dashboard() {
             </button>
           ))}
         </nav>
+
+        {/* Contact Developer Link */}
+        <div className="px-4 py-4 border-t border-[#E50914]/10">
+          <Link
+            to="/contact"
+            className="flex items-center gap-4 px-4 py-3 rounded-md text-gray-500 hover:bg-red-500/5 hover:text-[#E50914] transition-all duration-300 font-mono tracking-widest uppercase text-[10px]"
+          >
+            <MessageSquare size={14} />
+            Contact Developer
+          </Link>
+        </div>
 
         {/* Sidebar bottom: Focus Mode button + level badge + disconnect */}
         <div className="p-4 border-t border-[#E50914]/20 space-y-3">
@@ -271,6 +310,18 @@ export default function Dashboard() {
             </motion.div>
           </AnimatePresence>
         </main>
+
+        {/* Footer watermark */}
+        <div className="mt-20 pb-12 flex flex-col items-center gap-2">
+          <p className="text-[10px] font-mono uppercase tracking-[0.5em] font-black text-[#ff3b3b] drop-shadow-[0_0_10px_#ff3b3b]">
+            Made by Indransh ❤️
+          </p>
+          <div className="flex items-center gap-4 text-[8px] font-mono grayscale opacity-20">
+            <span>Systems v2.4</span>
+            <span className="w-1 h-1 rounded-full bg-gray-800" />
+            <span>Encrypted Node</span>
+          </div>
+        </div>
       </div>
 
       {/* Floating Timer — always visible across all tabs */}

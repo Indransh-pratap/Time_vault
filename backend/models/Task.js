@@ -7,6 +7,7 @@ const TaskSchema = new mongoose.Schema({
   completed: { type: Boolean, default: false },
   priority: { type: String, enum: ['low', 'medium', 'high'], default: 'medium' },
   deadline: Date,
+  date: { type: String, index: true }, // YYYY-MM-DD format for daily tracking
   timeSpent: { type: Number, default: 0 },
   missed: { type: Boolean, default: false }
 }, { timestamps: true });
