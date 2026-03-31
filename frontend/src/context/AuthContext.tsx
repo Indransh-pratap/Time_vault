@@ -16,6 +16,11 @@ export interface MongoUser {
   name: string;
   email: string;
   image: string;
+  bio?: string;
+  streak?: number;
+  level?: number;
+  xp?: number;
+  studyTime?: number;
   subscription: {
     status: 'free' | 'pro';
   };
