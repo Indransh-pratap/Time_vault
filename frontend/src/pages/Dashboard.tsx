@@ -105,7 +105,7 @@ export default function Dashboard() {
   const renderContent = () => {
     switch (activeTab) {
       case 'tasks':     return <TaskList xpHook={xp} />;
-      case 'planner':   return <PlannerView />;
+      case 'planner':   return <PlannerView dailyStreak={xp.streak} />;
       case 'targets':   return <TargetsDashboard />;
       case 'analytics': return <StudyMetrics />;
       case 'alarm':     return <AlarmClock />;

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Calendar, Plus, Trash2, Check, ChevronLeft, ChevronRight, X, LayoutGrid, Clock } from 'lucide-react';
+import { Calendar, Plus, Trash2, Check, ChevronLeft, ChevronRight, X, LayoutGrid, Clock, Zap } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
 import api from '../lib/api';
@@ -17,6 +17,7 @@ interface PlannerTask {
   type: 'daily' | 'weekly' | 'monthly';
   date: string;
   completed: boolean;
+  parentId?: string | null;
   _optimistic?: boolean;
 }
 
@@ -65,14 +66,17 @@ const SUBJECTS = Object.keys(SUBJECT_COLORS);
 // ── Add Task Modal ─────────────────────────────────────────────
 interface AddModalProps {
   date: Date;
+  weeklyGoals: PlannerTask[];
   onClose: () => void;
   onAdd: (task: Omit<PlannerTask, '_id' | 'progressPercent' | '_optimistic'>) => void;
 }
 
-const AddModal = ({ date, onClose, onAdd }: AddModalProps) => {
-  const [title,   setTitle]   = useState('');
-  const [subject, setSubject] = useState('General');
-  const [target,  setTarget]  = useState('1');
+const AddModal = ({ date, weeklyGoals, onClose, onAdd }: AddModalProps) => {
+  const [title,    setTitle]    = useState('');
+  const [subject,  setSubject]  = useState('General');
+  const [target,   setTarget]   = useState('1');
+  const [type,     setType]     = useState<'daily' | 'weekly'>('daily');
+  const [parentId, setParentId] = useState<string>('');
 
   const submit = () => {
     if (!title.trim()) { toast.error('Add a title'); return; }
@@ -80,8 +84,9 @@ const AddModal = ({ date, onClose, onAdd }: AddModalProps) => {
     if (!t || t <= 0) { toast.error('Target must be > 0'); return; }
     onAdd({
       title: title.trim(), subject, target: t,
-      progress: 0, type: 'daily',
+      progress: 0, type,
       date: date.toISOString(), completed: false,
+      parentId: (type === 'daily' && parentId) ? parentId : null,
     });
     onClose();
   };
@@ -98,7 +103,7 @@ const AddModal = ({ date, onClose, onAdd }: AddModalProps) => {
       >
         <div className="flex justify-between items-center mb-5">
           <h4 className="font-bold font-mono uppercase tracking-widest text-white text-sm">
-            Add Task — {DAY_LABELS[date.getDay()]} {date.getDate()} {MONTH_LABELS[date.getMonth()]}
+            Add {type === 'daily' ? 'Task' : 'Goal'} — {DAY_LABELS[date.getDay()]} {date.getDate()} {MONTH_LABELS[date.getMonth()]}
           </h4>
           <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors">
             <X size={18} />
@@ -106,13 +111,26 @@ const AddModal = ({ date, onClose, onAdd }: AddModalProps) => {
         </div>
 
         <div className="flex flex-col gap-3">
+          {/* Type Toggle */}
+          <div className="flex gap-1 bg-black p-1 rounded-sm border border-gray-800">
+            {(['daily', 'weekly'] as const).map(t => (
+              <button
+                key={t}
+                onClick={() => setType(t)}
+                className={`flex-1 py-1 text-[10px] font-mono uppercase tracking-widest transition-all rounded-sm ${type === t ? 'bg-[#E50914] text-white' : 'text-gray-500 hover:text-gray-300'}`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+
           <div>
             <label className="text-xs text-gray-500 font-mono tracking-widest uppercase mb-1 block">Title</label>
             <input
               autoFocus
               value={title} onChange={e => setTitle(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && submit()}
-              placeholder="e.g. Solve 5 LeetCode problems"
+              placeholder={type === 'daily' ? "e.g. Solve 2 problems" : "e.g. Solve 15 Trees problems"}
               className="w-full bg-[#050505] border border-gray-700 text-white px-3 py-2 rounded-sm focus:outline-none focus:border-[#E50914] transition-colors font-mono text-sm"
             />
           </div>
@@ -138,6 +156,21 @@ const AddModal = ({ date, onClose, onAdd }: AddModalProps) => {
             </div>
           </div>
 
+          {type === 'daily' && weeklyGoals.length > 0 && (
+            <div className="animate-in fade-in slide-in-from-top-1 duration-300">
+              <label className="text-xs text-gray-500 font-mono tracking-widest uppercase mb-1 block">Link to Weekly Goal</label>
+              <select
+                value={parentId} onChange={e => setParentId(e.target.value)}
+                className="w-full bg-[#050505] border border-gray-700 text-white px-3 py-2 rounded-sm focus:outline-none focus:border-[#E50914] transition-colors font-mono text-sm"
+              >
+                <option value="">None (Individual Task)</option>
+                {weeklyGoals.map(g => (
+                  <option key={g._id} value={g._id}>{g.title} ({g.progress}/{g.target})</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="grid grid-cols-3 gap-2 mt-1">
             {SUBJECTS.map(s => {
               const c = getSubjectColor(s);
@@ -155,7 +188,7 @@ const AddModal = ({ date, onClose, onAdd }: AddModalProps) => {
             onClick={submit}
             className="mt-2 flex items-center justify-center gap-2 py-2.5 bg-[#E50914]/10 border border-[#E50914] text-[#E50914] hover:bg-[#E50914] hover:text-white active:scale-[0.98] transition-all font-mono uppercase tracking-widest text-sm rounded-sm"
           >
-            <Plus size={16} /> Add Task
+            <Plus size={16} /> Add {type === 'daily' ? 'Task' : 'Goal'}
           </button>
         </div>
       </motion.div>
@@ -284,12 +317,101 @@ const DayColumn = ({ day, tasks, isToday, isSelected, onClick }: DayColumnProps)
   );
 };
 
+// ── Weekly Goal Card ──────────────────────────────────────────
+const WeeklyGoalCard = ({ task, childrenTasks, onToggle, onDelete }: {
+  task: PlannerTask;
+  childrenTasks: PlannerTask[];
+  onToggle: (id: string) => void;
+  onDelete: (id: string) => void;
+}) => {
+  const [expanded, setExpanded] = useState(false);
+  const c = getSubjectColor(task.subject);
+  
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className={`bg-[#0d0d0d] border border-gray-800 rounded-sm p-4 hover:border-gray-600 transition-all ${expanded ? 'ring-1 ring-[#E50914]/30' : ''}`}
+    >
+      <div className="flex justify-between items-start gap-3 mb-3">
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-sm ${c.bg} ${c.text} border ${c.border}`}>{task.subject}</span>
+            <span className="text-[10px] font-mono text-gray-500">{task.progress}/{task.target} items</span>
+          </div>
+          <h4 className={`text-sm font-bold font-mono uppercase tracking-widest text-white ${task.completed ? 'line-through text-gray-500' : ''}`}>
+            {task.title}
+          </h4>
+        </div>
+        <div className="flex gap-1">
+          <button onClick={() => onToggle(task._id)} className={`w-6 h-6 flex items-center justify-center border rounded-sm transition-all ${task.completed ? 'border-green-500 text-green-500 bg-green-500/10' : 'border-gray-700 text-gray-500 hover:text-white'}`}>
+            <Check size={12} />
+          </button>
+          <button onClick={() => onDelete(task._id)} className="w-6 h-6 flex items-center justify-center border border-gray-700 text-gray-500 hover:text-red-500 transition-all">
+            <Trash2 size={12} />
+          </button>
+        </div>
+      </div>
+
+      <div className="relative h-2 bg-black rounded-full overflow-hidden mb-3 border border-gray-900">
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{ width: `${task.progressPercent}%` }}
+          className={`absolute inset-y-0 left-0 ${c.bar} shadow-[0_0_10px_rgba(229,9,20,0.3)] transition-all duration-1000`}
+        />
+      </div>
+
+      <div className="flex justify-between items-center">
+        <span className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">{task.progressPercent}% Completed</span>
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="text-[10px] font-mono text-[#E50914] hover:underline underline-offset-4 uppercase tracking-widest flex items-center gap-1"
+        >
+          {expanded ? 'Hide Breakdown' : `Show Breakdown (${childrenTasks.length})`}
+          {expanded ? <ChevronLeft size={10} className="rotate-90" /> : <ChevronRight size={10} className="rotate-90" />}
+        </button>
+      </div>
+
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="pt-4 flex flex-col gap-2 border-t border-gray-900 mt-3">
+              {childrenTasks.length === 0 ? (
+                <p className="text-[10px] font-mono text-gray-600 text-center py-2">No linked daily tasks yet</p>
+              ) : (
+                childrenTasks.map(ct => (
+                  <div key={ct._id} className="flex items-center justify-between bg-black/40 p-2 rounded-sm border border-gray-900">
+                    <div className="flex items-center gap-2">
+                       <div className={`w-1 h-3 ${c.bar}`} />
+                       <span className={`text-[11px] font-mono text-gray-400 ${ct.completed ? 'line-through' : ''}`}>{ct.title}</span>
+                    </div>
+                    <span className="text-[10px] font-mono text-gray-600">
+                      {new Date(ct.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+};
+
 // ── Main PlannerView ───────────────────────────────────────────
-const PlannerView = () => {
+const PlannerView = ({ dailyStreak = 0 }: { dailyStreak?: number }) => {
   const socket = useSocket();
   const today  = new Date();
   today.setHours(0, 0, 0, 0);
 
+  const [viewMode,     setViewMode]     = useState<'daily' | 'weekly'>('daily');
   const [weekStart,    setWeekStart]    = useState(() => getWeekStart(today));
   const [selectedDay,  setSelectedDay]  = useState<Date>(today);
   const [tasks,        setTasks]        = useState<PlannerTask[]>([]);
@@ -300,13 +422,17 @@ const PlannerView = () => {
   const autoSaveRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const weekDays  = getWeekDays(weekStart);
-  const weekLabel = `${DAY_LABELS[weekDays[0].getDay()]} ${weekDays[0].getDate()} ${MONTH_LABELS[weekDays[0].getMonth()]} – ${DAY_LABELS[weekDays[6].getDay()]} ${weekDays[6].getDate()} ${MONTH_LABELS[weekDays[6].getMonth()]}`;
+  const weekLabel = `${weekDays[0].getDate()} ${MONTH_LABELS[weekDays[0].getMonth()]} – ${weekDays[6].getDate()} ${MONTH_LABELS[weekDays[6].getMonth()]}`;
 
-  // Tasks for selected day
-  const dayTasks   = tasks.filter(t => taskDateYMD(t) === toYMD(selectedDay));
-  // Total weekly progress
-  const weeklyDone = tasks.filter(t => t.completed).length;
-  const weeklyPct  = tasks.length ? Math.round((weeklyDone / tasks.length) * 100) : 0;
+  const weeklyGoals = tasks.filter(t => t.type === 'weekly');
+  const dailyTasks  = tasks.filter(t => t.type === 'daily');
+  
+  // Tasks for selected day (Daily View)
+  const dayTasks   = dailyTasks.filter(t => taskDateYMD(t) === toYMD(selectedDay));
+  
+  // Completion metrics
+  const doneCount = tasks.filter(t => t.completed).length;
+  const progressPct = tasks.length ? Math.round((doneCount / tasks.length) * 100) : 0;
 
   // ── Fetch week ───────────────────────────────────────────────
   const fetchWeek = useCallback(async (ws: Date) => {
@@ -403,10 +529,10 @@ const PlannerView = () => {
       const confirmed = { ...data, progressPercent: calcPercent(data.progress, data.target) };
       setTasks(prev => prev.map(t => t._id === tempId ? confirmed : t));
       socket?.emit('planner:update', confirmed);
-      toast.success('Task added', { style: { border: '1px solid #E50914', background: '#0B0C10', color: '#fff' } });
+      toast.success(`${raw.type === 'weekly' ? 'Goal' : 'Task'} added`, { style: { border: '1px solid #E50914', background: '#0B0C10', color: '#fff' } });
     } catch (err: any) {
       setTasks(prev => prev.filter(t => t._id !== tempId));
-      toast.error(err?.response?.data?.message || 'Failed to add task');
+      toast.error(err?.response?.data?.message || 'Failed to add item');
     }
   };
 
@@ -416,111 +542,190 @@ const PlannerView = () => {
   const goToday  = () => { setWeekStart(getWeekStart(today)); setSelectedDay(today); };
 
   return (
-    <div className="flex flex-col gap-5 w-full p-2">
+    <div className="flex flex-col gap-6 w-full p-2 max-w-4xl mx-auto">
       {/* ── Header ──────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b-2 border-gray-900 pb-4">
-        <div className="flex items-center gap-3">
-          <Calendar size={20} className="text-[#E50914] drop-shadow-[0_0_5px_#E50914] animate-pulse" />
-          <h3 className="text-xl font-bold uppercase tracking-widest text-white">Weekly Planner</h3>
-        </div>
-        {/* Overall progress pill */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-[#0d0d0d] border border-gray-800 px-4 py-1.5 rounded-sm">
-            <span className="text-xs font-mono text-gray-500 uppercase tracking-widest">Week</span>
-            <span className={`text-sm font-bold font-mono ${weeklyPct === 100 ? 'text-green-400' : 'text-[#E50914]'}`}>
-              {weeklyPct}%
-            </span>
-            <span className="text-xs text-gray-600 font-mono">{weeklyDone}/{tasks.length} done</span>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-[#050505] p-5 border border-gray-900 rounded-sm">
+        <div className="flex items-center gap-4">
+          <div className="w-10 h-10 bg-[#E50914]/10 border border-[#E50914]/40 flex items-center justify-center rounded-sm">
+            <Calendar size={22} className="text-[#E50914] drop-shadow-[0_0_8px_rgba(229,9,20,0.5)]" />
           </div>
-          <button
-            onClick={goToday}
-            className="text-xs font-mono uppercase tracking-widest text-gray-500 hover:text-white border border-gray-700 hover:border-gray-500 px-3 py-1.5 rounded-sm transition-all"
-          >Today</button>
-        </div>
-      </div>
-
-      {/* ── Week Nav ────────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
-        <button onClick={prevWeek} className="p-1.5 border border-gray-700 rounded-sm text-gray-400 hover:text-white hover:border-gray-500 active:scale-90 transition-all">
-          <ChevronLeft size={18} />
-        </button>
-        <span className="text-sm font-mono text-gray-400 tracking-widest">{weekLabel}</span>
-        <button onClick={nextWeek} className="p-1.5 border border-gray-700 rounded-sm text-gray-400 hover:text-white hover:border-gray-500 active:scale-90 transition-all">
-          <ChevronRight size={18} />
-        </button>
-      </div>
-
-      {/* ── 7-Day Horizontal Calendar ───────────────────────── */}
-      {loading ? (
-        <div className="flex gap-3 overflow-x-auto pb-2">
-          {[...Array(7)].map((_, i) => (
-            <div key={i} className="flex-shrink-0 w-36 h-40 bg-[#111] border border-gray-800 rounded-sm animate-pulse" />
-          ))}
-        </div>
-      ) : (
-        <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">
-          {weekDays.map(day => (
-            <DayColumn
-              key={toYMD(day)}
-              day={day}
-              tasks={tasks.filter(t => taskDateYMD(t) === toYMD(day))}
-              isToday={toYMD(day) === toYMD(today)}
-              isSelected={toYMD(day) === toYMD(selectedDay)}
-              onClick={() => setSelectedDay(new Date(day))}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* ── Day Detail ──────────────────────────────────────── */}
-      <div className="mt-1 bg-[#0d0d0d] border border-gray-800 rounded-sm p-4">
-        <div className="flex justify-between items-center mb-4">
           <div>
-            <h4 className="font-bold font-mono uppercase tracking-widest text-white text-sm">
-              {DAY_LABELS[selectedDay.getDay()]} {selectedDay.getDate()} {MONTH_LABELS[selectedDay.getMonth()]}
-              {toYMD(selectedDay) === toYMD(today) && (
-                <span className="ml-2 text-[#E50914] text-xs border border-[#E50914]/40 px-1.5 py-0.5 rounded-sm">TODAY</span>
-              )}
-            </h4>
-            <p className="text-xs text-gray-500 font-mono mt-0.5">{dayTasks.length} task{dayTasks.length !== 1 ? 's' : ''} · auto-saves every 15s</p>
+            <h3 className="text-lg font-bold uppercase tracking-[0.2em] text-white">System Planner</h3>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-[10px] font-mono text-gray-500 uppercase">Operational Status</span>
+              <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shadow-[0_0_5px_rgba(34,197,94,0.5)]" />
+            </div>
           </div>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1.5 px-4 py-2 bg-[#E50914]/10 border border-[#E50914] text-[#E50914] hover:bg-[#E50914] hover:text-white active:scale-95 transition-all font-mono uppercase tracking-widest text-xs rounded-sm"
-          >
-            <Plus size={14} /> Add Task
-          </button>
         </div>
 
-        <AnimatePresence>
-          {dayTasks.length === 0 ? (
-            <motion.div
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-              className="text-center py-10 text-[#E50914]/40 font-mono text-sm uppercase tracking-widest border-2 border-dashed border-[#E50914]/10 rounded-sm"
+        {/* Improved Toggle Switch */}
+        <div className="flex bg-black p-1 rounded-sm border border-gray-800 self-stretch sm:self-auto">
+          {(['daily', 'weekly'] as const).map(m => (
+            <button
+              key={m}
+              onClick={() => setViewMode(m)}
+              className={`flex items-center gap-2 px-5 py-2 rounded-sm text-xs font-mono uppercase tracking-widest transition-all duration-300 ${viewMode === m ? 'bg-[#E50914] text-white shadow-[0_0_15px_rgba(229,9,20,0.3)]' : 'text-gray-500 hover:text-gray-300'}`}
             >
-              No tasks — add one above
-            </motion.div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {dayTasks.map(task => (
-                <TaskCard
-                  key={task._id}
-                  task={task}
-                  onProgressChange={changeProgress}
-                  onToggle={toggleTask}
-                  onDelete={handleDelete}
+              {m === 'daily' ? <Clock size={14} /> : <LayoutGrid size={14} />}
+              {m === 'daily' ? 'Execution' : 'Strategy'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Sub-Header Metrics ───────────────────────────────── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="bg-[#0d0d0d] border border-gray-900 p-3 rounded-sm">
+          <p className="text-[9px] font-mono text-gray-600 uppercase tracking-widest mb-1">Weekly Efficiency</p>
+          <p className="text-xl font-bold font-mono text-white">{progressPct}%</p>
+        </div>
+        <div className="bg-[#0d0d0d] border border-gray-900 p-3 rounded-sm">
+          <p className="text-[9px] font-mono text-gray-600 uppercase tracking-widest mb-1">Goals Completed</p>
+          <p className="text-xl font-bold font-mono text-white">{weeklyGoals.filter(g => g.completed).length}/{weeklyGoals.length}</p>
+        </div>
+        <div className="bg-[#0d0d0d] border border-gray-900 p-3 rounded-sm">
+          <p className="text-[9px] font-mono text-gray-600 uppercase tracking-widest mb-1">Daily Streak</p>
+          <p className="text-xl font-bold font-mono text-[#E50914] flex items-center gap-2">
+            {dailyStreak} 
+            <span className="text-[10px] text-gray-600 uppercase">Days</span>
+            {dailyStreak > 0 && <Zap size={14} className="text-yellow-500 fill-yellow-500 animate-bounce" />}
+          </p>
+        </div>
+        <div className="bg-[#0d0d0d] border border-gray-900 p-3 rounded-sm">
+          <p className="text-[9px] font-mono text-gray-600 uppercase tracking-widest mb-1">Active Week</p>
+          <p className="text-[11px] font-bold font-mono text-gray-400 mt-2 uppercase">{weekLabel}</p>
+        </div>
+      </div>
+
+      {/* ── View Content ────────────────────────────────────── */}
+      <AnimatePresence mode="wait">
+        {viewMode === 'weekly' ? (
+          <motion.div
+            key="weekly"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            className="flex flex-col gap-4"
+          >
+             <div className="flex justify-between items-center bg-[#050505] p-4 border border-gray-900 rounded-sm">
+                <div className="flex items-center gap-4">
+                  <h4 className="text-xs font-mono font-bold uppercase tracking-widest text-[#E50914]">High-Level Weekly Targets</h4>
+                  <div className="flex items-center gap-1">
+                    <button onClick={prevWeek} className="p-1 hover:text-[#E50914] transition-colors"><ChevronLeft size={14} /></button>
+                    <span className="text-[10px] font-mono text-gray-500">{weekLabel}</span>
+                    <button onClick={nextWeek} className="p-1 hover:text-[#E50914] transition-colors"><ChevronRight size={14} /></button>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={goToday} className="px-3 py-1 text-[10px] font-mono text-gray-400 hover:text-white border border-gray-800 rounded-sm">Today</button>
+                  <button
+                    onClick={() => setShowAddModal(true)}
+                    className="px-4 py-2 bg-[#E50914]/10 border border-[#E50914] text-[#E50914] hover:bg-[#E50914] hover:text-white transition-all font-mono uppercase tracking-[0.2em] text-[10px] rounded-sm"
+                  >
+                    New Strategy
+                  </button>
+                </div>
+             </div>
+             
+             {weeklyGoals.length === 0 ? (
+               <div className="text-center py-20 bg-[#0d0d0d] border-2 border-dashed border-gray-900 rounded-sm">
+                  <p className="text-xs font-mono text-gray-600 uppercase tracking-widest">No strategies defined for this week</p>
+               </div>
+             ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {weeklyGoals.map(goal => (
+                    <WeeklyGoalCard
+                      key={goal._id}
+                      task={goal}
+                      childrenTasks={dailyTasks.filter(dt => dt.parentId === goal._id)}
+                      onToggle={toggleTask}
+                      onDelete={handleDelete}
+                    />
+                  ))}
+                </div>
+             )}
+          </motion.div>
+        ) : (
+          <motion.div
+            key="daily"
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
+            className="flex flex-col gap-4"
+          >
+            {/* 7-Day Mini Calendar with Nav */}
+            <div className="flex items-center justify-between mb-1">
+               <div className="flex items-center gap-2">
+                 <button onClick={prevWeek} className="p-1.5 border border-gray-800 rounded-sm text-gray-500 hover:text-white"><ChevronLeft size={16} /></button>
+                 <span className="text-[11px] font-mono text-gray-500 uppercase tracking-widest">{weekLabel}</span>
+                 <button onClick={nextWeek} className="p-1.5 border border-gray-800 rounded-sm text-gray-500 hover:text-white"><ChevronRight size={16} /></button>
+               </div>
+               <button onClick={goToday} className="text-[10px] font-mono text-[#E50914] border border-[#E50914]/20 px-2 py-1 rounded-sm hover:bg-[#E50914]/10 transition-all">Back to Today</button>
+            </div>
+            
+            <div className="flex gap-2 overflow-x-auto pb-4 scrollbar-hide">
+              {weekDays.map(day => (
+                <DayColumn
+                  key={toYMD(day)}
+                  day={day}
+                  tasks={dailyTasks.filter(t => taskDateYMD(t) === toYMD(day))}
+                  isToday={toYMD(day) === toYMD(today)}
+                  isSelected={toYMD(day) === toYMD(selectedDay)}
+                  onClick={() => setSelectedDay(new Date(day))}
                 />
               ))}
             </div>
-          )}
-        </AnimatePresence>
-      </div>
+
+            {/* Execution List */}
+            <div className="bg-[#050505] border border-gray-900 rounded-sm overflow-hidden shadow-2xl">
+              <div className="flex justify-between items-center p-5 border-b border-gray-900 bg-[#080808]">
+                <div>
+                   <h4 className="font-bold font-mono uppercase tracking-widest text-white text-sm">
+                    Execution Mode — {selectedDay.getDate()} {MONTH_LABELS[selectedDay.getMonth()]}
+                   </h4>
+                   <p className="text-[10px] font-mono text-gray-600 mt-1">{dayTasks.length} Operations Pending</p>
+                </div>
+                <button
+                  onClick={() => setShowAddModal(true)}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-[#E50914] text-white hover:bg-red-700 transition-all font-mono uppercase tracking-widest text-[10px] rounded-sm font-bold active:scale-95"
+                >
+                  <Plus size={14} /> Add Task
+                </button>
+              </div>
+
+              <div className="p-4 flex flex-col gap-3 min-h-[300px]">
+                {loading ? (
+                  <div className="flex-1 flex items-center justify-center">
+                    <div className="w-8 h-8 border-2 border-[#E50914] border-t-transparent rounded-full animate-spin" />
+                  </div>
+                ) : dayTasks.length === 0 ? (
+                  <div className="flex-1 flex flex-col items-center justify-center py-10 opacity-30">
+                    <Clock size={40} className="mb-4 text-gray-600" />
+                    <p className="text-xs font-mono text-gray-500 uppercase tracking-[0.3em]">No tasks indexed for this sector</p>
+                  </div>
+                ) : (
+                  dayTasks.map(task => (
+                    <TaskCard
+                      key={task._id}
+                      task={task}
+                      onProgressChange={changeProgress}
+                      onToggle={toggleTask}
+                      onDelete={handleDelete}
+                    />
+                  ))
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── Add Modal ───────────────────────────────────────── */}
       <AnimatePresence>
         {showAddModal && (
           <AddModal
             date={selectedDay}
+            weeklyGoals={weeklyGoals}
             onClose={() => setShowAddModal(false)}
             onAdd={handleAdd}
           />
@@ -529,7 +734,6 @@ const PlannerView = () => {
     </div>
   );
 };
-
 // ── Planner Type Picker ────────────────────────────────────────
 type PlannerMode = 'picker' | 'daily' | 'weekly' | 'monthly';
 
@@ -591,7 +795,7 @@ const PlannerPicker = ({ onSelect }: { onSelect: (m: PlannerMode) => void }) => 
 );
 
 // ── Outer wrapper — picker + views ──────────────────────────────
-const PlannerWrapper = () => {
+const PlannerWrapper = ({ dailyStreak = 0 }: { dailyStreak?: number }) => {
   const [mode, setMode] = useState<PlannerMode>('picker');
 
   return (
@@ -613,7 +817,7 @@ const PlannerWrapper = () => {
             <button onClick={() => setMode('picker')} className="text-xs text-gray-500 hover:text-white font-mono tracking-widest uppercase border border-gray-700 hover:border-gray-500 px-2 py-1 rounded-sm transition-all">← Back</button>
             {mode === 'daily' && <span className="text-xs text-cyan-400 font-mono tracking-widest uppercase">Today's Tasks ↓</span>}
           </div>
-          <PlannerView />
+          <PlannerView dailyStreak={dailyStreak} />
         </motion.div>
       )}
     </AnimatePresence>

@@ -60,7 +60,7 @@ const createPlannerItem = async (req, res) => {
     const userId = req.user?.uid;
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });
 
-    const { title, subject, target, type, date, timezone } = req.body;
+    const { title, subject, target, type, date, timezone, parentId } = req.body;
     if (!title || !target) {
       return res.status(400).json({ message: 'title and target are required' });
     }
@@ -77,8 +77,10 @@ const createPlannerItem = async (req, res) => {
       date: adjustedDate,
       timezone: tz,
       completed: false,
+      parentId: parentId || null,
     });
     const saved = await item.save();
+    if (parentId) await syncParentProgress(parentId, req.app);
     res.status(201).json(saved);
   } catch (error) {
     console.error('[Planner] createPlannerItem error:', error.message);
@@ -104,8 +106,12 @@ const updatePlannerItem = async (req, res) => {
     if (progress  !== undefined) item.progress  = Number(progress);
     if (completed !== undefined) item.completed = Boolean(completed);
     if (type      !== undefined) item.type      = type;
+    if (parentId  !== undefined) item.parentId  = parentId;
 
     await item.save();
+    
+    // Auto-sync parent if it exists
+    if (item.parentId) await syncParentProgress(item.parentId, req.app);
 
     // Real-time broadcast via Socket.io
     const io = req.app.get('io');
@@ -129,11 +135,35 @@ const deletePlannerItem = async (req, res) => {
     if (!item) return res.status(404).json({ message: 'Item not found' });
     if (item.userId !== userId) return res.status(401).json({ message: 'Not authorized' });
 
+    const pId = item.parentId;
     await item.deleteOne();
+    if (pId) await syncParentProgress(pId, req.app);
     res.json({ message: 'Deleted', _id: req.params.id });
   } catch (error) {
     console.error('[Planner] deletePlannerItem error:', error.message);
     res.status(500).json({ message: error.message });
+  }
+};
+
+// ── Utility: Sync Parent Progress ──────────────────────────────
+const syncParentProgress = async (parentId, appId) => {
+  if (!parentId) return;
+  try {
+    const parent = await PlannerItem.findById(parentId);
+    if (!parent) return;
+
+    // Sum up progress of all children
+    const children = await PlannerItem.find({ parentId });
+    const totalProgress = children.reduce((acc, c) => acc + (c.progress || 0), 0);
+    
+    parent.progress = totalProgress;
+    await parent.save();
+
+    // Broadcast parent update
+    const io = appId ? appId.get('io') : null;
+    if (io) io.emit('planner:sync', parent.toJSON());
+  } catch (err) {
+    console.error('[Planner] syncParentProgress error:', err.message);
   }
 };
 

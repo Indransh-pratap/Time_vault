@@ -10,6 +10,7 @@ const PlannerItemSchema = new mongoose.Schema({
   date:      { type: Date,   required: true },         // timezone-adjusted date
   timezone:  { type: String, default: 'Asia/Kolkata' },
   completed: { type: Boolean, default: false },
+  parentId:  { type: String, default: null, index: true }, // For Daily tasks pointing to Weekly goals
 }, { timestamps: true });
 
 // Compound index: queries by userId + date range are the hot path
