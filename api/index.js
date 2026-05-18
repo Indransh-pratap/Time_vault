@@ -2,9 +2,7 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
-const http = require('http');
-const { Server } = require('socket.io');
-const uploadRoute = require('./routes/uploadProfile');
+const serverless = require("serverless-http");
 const connectDB = require('./config/db');
 
 // Routes
@@ -23,12 +21,23 @@ const alarmRoutes = require('./routes/alarmRoutes');
 const noteRoutes = require('./routes/noteRoutes');
 const xpRoutes = require('./routes/xpRoutes');
 const metricsRoutes = require('./routes/metricsRoutes');
+const codingRoutes = require('./routes/codingRoutes');
 const chatRoute = require('./routes/chat'); // ✅ chatbot route
-
-// Connect DB
-connectDB();
+const uploadRoute = require('./routes/uploadProfile');
 
 const app = express();
+
+// ── Connect DB ──────────────────────────────────────────
+// Efficiently connect to DB in a serverless environment (Caching Pattern)
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    console.error("DB Connection Error:", err);
+    res.status(500).json({ error: "Database connection failed" });
+  }
+});
 
 // ── CORS ─────────────────────────────────────────────
 const corsOptions = {
@@ -44,45 +53,29 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-// ── Server + Socket ──────────────────────────────────
-const server = http.createServer(app);
+// ── Socket.io ───────────────────────────────────────
+/* 
+  ⚠️ IMPORTANT LIMITATION:
+  Vercel Serverless Functions do NOT support WebSockets (Socket.io). 
+  Socket.io server and listeners have been removed to ensure Vercel compatibility.
+  Real-time features (sockets) will not work on Vercel. 
+  Consider using polling, Server-Sent Events (SSE), or a third-party managed WebSocket service like Pusher/Ably.
+*/
 
-const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
+// Middleware to safely stub 'io' so existing routes don't crash when calling `req.app.get('io')`
+app.use((req, res, next) => {
+  if (!req.app.get('io')) {
+    req.app.set('io', {
+      emit: () => {}, 
+      sockets: { emit: () => {} }
+    });
   }
+  next();
 });
-
-io.on('connection', (socket) => {
-  console.log(`[Socket] Connected: ${socket.id}`);
-
-  socket.on('planner:update', (data) => {
-    socket.broadcast.emit('planner:sync', data);
-  });
-
-  socket.on('alarm:update', (data) => {
-    socket.broadcast.emit('alarm:sync', data);
-  });
-
-  socket.on('note:update', (data) => {
-    socket.broadcast.emit('note:sync', data);
-  });
-
-  socket.on('study:update', (data) => {
-    socket.broadcast.emit('study:sync', data); // ✅ fixed
-  });
-
-  socket.on('disconnect', () => {
-    console.log(`[Socket] Disconnected: ${socket.id}`);
-  });
-});
-
-app.set('io', io);
 
 // ── Middleware ───────────────────────────────────────
 
-// Stripe webhook (must come before JSON)
+// Stripe webhook (must come before express.json() to keep raw body parsing intact)
 app.use('/api/payments/webhook', express.raw({ type: 'application/json' }));
 
 // JSON parser
@@ -108,20 +101,20 @@ app.use('/api/alarm', alarmRoutes);
 app.use('/api/notes', noteRoutes);
 app.use('/api/xp', xpRoutes);
 app.use('/api/metrics', metricsRoutes);
+app.use('/api/coding', codingRoutes);
 
 app.use("/api/upload-profile", uploadRoute);
+
 // 🤖 Chatbot route
 app.use('/api/chat', chatRoute);
 
 // Health check
 app.get('/', (req, res) => {
-  res.send('✅ TimeVault Backend + AI running');
+  res.send('✅ TimeVault Backend + AI running (Serverless Vercel Mode)');
 });
 
-// ── Start Server ─────────────────────────────────────
-const PORT = process.env.PORT || 5000;
+// ── Serverless Export ────────────────────────────────
+// Export the Express API wrapped with serverless-http
 
-server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`🌐 Allowed origins:`, corsOptions.origin);
-});
+module.exports = app;
+module.exports.handler = serverless(app);

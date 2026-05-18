@@ -1,10 +1,10 @@
 import type { CapacitorConfig } from '@capacitor/cli';
-export default {
-  appId: 'com.indransh.timevault',
+
+const config: CapacitorConfig = {
+  appId: 'com.timevault.app',
   appName: 'TimeVault',
   webDir: 'dist',
-  server: {
-    url: 'https://time-vault-gamma.vercel.app',
-    cleartext: true
-  }
+  bundledWebRuntime: false
 };
+
+export default config;

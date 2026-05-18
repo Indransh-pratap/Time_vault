@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Calendar, Plus, Trash2, Check, ChevronLeft, ChevronRight, X, LayoutGrid, Clock, Zap } from 'lucide-react';
+import { Calendar, Plus, Trash2, Check, ChevronLeft, ChevronRight, X, LayoutGrid, Clock, Zap, Edit2 } from 'lucide-react';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
 import api from '../lib/api';
@@ -217,6 +218,9 @@ const TaskCard = ({ task, onProgressChange, onToggle, onDelete }: TaskCardProps)
       <div className="flex items-start justify-between gap-1 mb-1.5">
         <div className="flex-1 min-w-0">
           <p className={`text-xs font-bold font-mono uppercase tracking-wide truncate ${task.completed ? 'line-through text-gray-600' : 'text-gray-200'}`}>
+            <span className={`inline-block mr-1.5 px-0.5 rounded-sm bg-black border border-gray-800 text-[9px] ${task.type === 'monthly' ? 'text-purple-400' : task.type === 'weekly' ? 'text-[#E50914]' : 'text-cyan-400'}`}>
+              [{task.type === 'monthly' ? 'M' : task.type === 'weekly' ? 'W' : 'D'}]
+            </span>
             {task.title}
           </p>
           <span className={`text-[10px] font-mono ${c.text}`}>{task.subject}</span>
@@ -341,6 +345,9 @@ const WeeklyGoalCard = ({ task, childrenTasks, onToggle, onDelete }: {
             <span className="text-[10px] font-mono text-gray-500">{task.progress}/{task.target} items</span>
           </div>
           <h4 className={`text-sm font-bold font-mono uppercase tracking-widest text-white ${task.completed ? 'line-through text-gray-500' : ''}`}>
+            <span className="inline-block mr-1.5 px-1 py-0.5 rounded-sm bg-black border border-gray-800 text-[10px] text-[#E50914]">
+              [W]
+            </span>
             {task.title}
           </h4>
         </div>
@@ -388,6 +395,7 @@ const WeeklyGoalCard = ({ task, childrenTasks, onToggle, onDelete }: {
                 childrenTasks.map(ct => (
                   <div key={ct._id} className="flex items-center justify-between bg-black/40 p-2 rounded-sm border border-gray-900">
                     <div className="flex items-center gap-2">
+                       <span className="inline-block px-1 rounded-sm bg-black border border-gray-800 text-[8px] text-cyan-400 font-bold">[D]</span>
                        <div className={`w-1 h-3 ${c.bar}`} />
                        <span className={`text-[11px] font-mono text-gray-400 ${ct.completed ? 'line-through' : ''}`}>{ct.title}</span>
                     </div>
@@ -411,9 +419,18 @@ const PlannerView = ({ dailyStreak = 0 }: { dailyStreak?: number }) => {
   const today  = new Date();
   today.setHours(0, 0, 0, 0);
 
+  const [searchParams] = useSearchParams();
   const [viewMode,     setViewMode]     = useState<'daily' | 'weekly'>('daily');
-  const [weekStart,    setWeekStart]    = useState(() => getWeekStart(today));
-  const [selectedDay,  setSelectedDay]  = useState<Date>(today);
+  const [selectedDay,  setSelectedDay]  = useState<Date>(() => {
+    const d = searchParams.get('date');
+    if (d) {
+      const [y, m, day] = d.split('-').map(Number);
+      return new Date(y, m - 1, day, 0, 0, 0, 0);
+    }
+    return today;
+  });
+  
+  const [weekStart,    setWeekStart]    = useState(() => getWeekStart(selectedDay));
   const [tasks,        setTasks]        = useState<PlannerTask[]>([]);
   const [loading,      setLoading]      = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -425,7 +442,7 @@ const PlannerView = ({ dailyStreak = 0 }: { dailyStreak?: number }) => {
   const weekLabel = `${weekDays[0].getDate()} ${MONTH_LABELS[weekDays[0].getMonth()]} – ${weekDays[6].getDate()} ${MONTH_LABELS[weekDays[6].getMonth()]}`;
 
   const weeklyGoals = tasks.filter(t => t.type === 'weekly');
-  const dailyTasks  = tasks.filter(t => t.type === 'daily');
+  const dailyTasks  = tasks.filter(t => t.type === 'daily' || t.type === 'monthly');
   
   // Tasks for selected day (Daily View)
   const dayTasks   = dailyTasks.filter(t => taskDateYMD(t) === toYMD(selectedDay));
@@ -644,6 +661,50 @@ const PlannerView = ({ dailyStreak = 0 }: { dailyStreak?: number }) => {
                   ))}
                 </div>
              )}
+
+             {/* ── Monthly Strategy ── */}
+             <div className="mt-2 flex flex-col gap-3">
+               <h4 className="text-xs font-mono font-bold uppercase tracking-widest text-[#E50914]">Monthly Strategy</h4>
+               <div className="bg-[#0d0d0d] border border-gray-900 rounded-sm p-5 hover:border-gray-800 transition-all flex flex-col gap-4">
+                 
+                 <div className="flex justify-between items-start">
+                   <div className="flex-1">
+                     <p className="text-[10px] font-mono text-gray-500 uppercase tracking-widest mb-1.5 flex justify-between items-center">
+                       <span>Primary Focus</span>
+                       <button className="text-gray-600 hover:text-white transition-colors" title="Edit Monthly Goal">
+                         <Edit2 size={12} />
+                       </button>
+                     </p>
+                     <p className="text-base font-bold font-mono text-white tracking-wide">Complete 200 DSA Problems</p>
+                   </div>
+                 </div>
+
+                 {/* Progress Bar */}
+                 <div className="flex items-center gap-3">
+                   <div className="flex-1 h-1.5 bg-black rounded-full overflow-hidden border border-gray-900">
+                     <div className="h-full bg-[#E50914] shadow-[0_0_10px_rgba(229,9,20,0.3)] w-[35%]" />
+                   </div>
+                   <span className="text-[10px] font-mono text-gray-500">35%</span>
+                 </div>
+
+                 {/* Focus Areas */}
+                 <div className="mt-1">
+                   <div className="flex gap-2 flex-wrap">
+                     {["DSA", "React Projects", "Backend APIs", "Gym"].map(area => (
+                       <span key={area} className="text-[10px] font-mono px-2 py-0.5 rounded-sm bg-[#151515] border border-gray-800 text-gray-400">
+                         {area}
+                       </span>
+                     ))}
+                   </div>
+                 </div>
+
+                 {/* Motivation / Quote */}
+                 <div className="pt-3 border-t border-gray-900 mt-1">
+                   <p className="text-[11px] font-mono text-gray-500 italic text-center">"Small progress daily leads to big results."</p>
+                 </div>
+                 
+               </div>
+             </div>
           </motion.div>
         ) : (
           <motion.div
@@ -796,7 +857,10 @@ const PlannerPicker = ({ onSelect }: { onSelect: (m: PlannerMode) => void }) => 
 
 // ── Outer wrapper — picker + views ──────────────────────────────
 const PlannerWrapper = ({ dailyStreak = 0 }: { dailyStreak?: number }) => {
-  const [mode, setMode] = useState<PlannerMode>('picker');
+  const location = useLocation();
+  const [mode, setMode] = useState<PlannerMode>(() => {
+    return location.pathname === '/daily' ? 'daily' : 'picker';
+  });
 
   return (
     <AnimatePresence mode="wait">

@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   LogOut, LayoutDashboard, Calendar, Target, Activity,
-  Menu, X, Zap, Bell, Music, StickyNote, Maximize2, Clock, MessageSquare, User,
+  Menu, X, Zap, Bell, Music, StickyNote, Maximize2, Clock, MessageSquare, User, Terminal
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import TaskList from '../components/TaskList';
@@ -20,13 +20,14 @@ import XPBar from '../components/XPBar';
 import FloatingTimer from '../components/FloatingTimer';
 import FloatingMusicPlayer from '../components/FloatingMusicPlayer';
 import FocusMode from '../components/FocusMode';
+import CodingVaultView from '../components/CodingVaultView';
 
 import { useXP } from '../hooks/useXP';
 import { useSocket } from '../context/SocketContext';
 import api from '../lib/api';
 import Chat_bot from '../components/AI_chat_bot';
 
-type TabId = 'tasks' | 'planner' | 'targets' | 'analytics' | 'alarm' | 'music' | 'notes' | 'profile' |'chatbot';
+type TabId = 'tasks' | 'planner' | 'targets' | 'analytics' | 'alarm' | 'music' | 'notes' | 'profile' |'chatbot' | 'coding_vault';
 
 const fmtTime = (s: number) => {
   const h = Math.floor(s / 3600).toString().padStart(2, '0');
@@ -42,7 +43,10 @@ const TZ_OFFSET = new Date().getTimezoneOffset() * -1;
 export default function Dashboard() {
   const { mongoUser, logout } = useAuth();
   const [showProModal,    setShowProModal]    = useState(false);
-  const [activeTab,       setActiveTab]       = useState<TabId>('tasks');
+  const location = useLocation();
+  const [activeTab,       setActiveTab]       = useState<TabId>(() => {
+    return location.pathname === '/daily' ? 'planner' : 'tasks';
+  });
   const [sidebarOpen,     setSidebarOpen]     = useState(false);
   const [focusModeOpen,   setFocusModeOpen]   = useState(false);
   const [todayStudy,      setTodayStudy]      = useState(0);
@@ -97,6 +101,7 @@ export default function Dashboard() {
     { id: 'alarm',     label: 'Alarm',       icon: Bell },
     { id: 'notes',     label: 'Notes',       icon: StickyNote },
     { id: 'music',     label: 'Focus Music', icon: Music },
+    { id: 'coding_vault', label: 'Coding Vault', icon: Terminal },
     { id: 'profile',   label: 'Profile',     icon: User },
     { id: 'chatbot', label: 'Chatbot', icon: MessageSquare },
 
@@ -111,6 +116,7 @@ export default function Dashboard() {
       case 'alarm':     return <AlarmClock />;
       case 'notes':     return <NotesView />;
       case 'music':     return <FocusMusic />;
+      case 'coding_vault': return <CodingVaultView />;
       case 'profile':   return <ProfileView />;
     case 'chatbot':
   return <Chat_bot />;
@@ -131,7 +137,7 @@ export default function Dashboard() {
       )}
 
       {/* Sidebar */}
-      <aside className={`fixed md:static inset-y-0 left-0 z-50 w-64 bg-[#050505] border-r border-[#E50914]/30 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-300 flex flex-col`}>
+      <aside className={`fixed md:static inset-y-0 left-0 z-50 w-64 bg-[#050505] border-r border-[#E50914]/30 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-300 flex flex-col pt-safe`}>
         <div className="p-6 border-b border-[#E50914]/20 flex justify-between items-center">
           <h1 className="text-2xl font-bold tracking-widest uppercase text-[#E50914] drop-shadow-[0_0_8px_#E50914]">
             TimeVault
@@ -220,7 +226,7 @@ export default function Dashboard() {
         />
 
         {/* Top Navbar */}
-        <header className="border-b border-[#E50914]/20 bg-[#050505]/80 backdrop-blur-md z-10 sticky top-0">
+        <header className="border-b border-[#E50914]/20 bg-[#050505]/80 backdrop-blur-md z-10 sticky top-0 pt-safe">
           {/* Row 1: nav + user */}
           <div className="h-16 flex items-center justify-between px-4 md:px-8">
             <div className="flex items-center gap-4">
@@ -296,7 +302,7 @@ export default function Dashboard() {
         </header>
 
         {/* Main Content Scrolling Area */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-8 z-10 relative">
+        <main className="flex-1 overflow-y-auto p-4 md:p-8 z-10 relative pb-safe">
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}

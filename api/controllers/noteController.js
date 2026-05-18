@@ -81,6 +81,7 @@ const uploadPdfNote = async (req, res) => {
           resource_type: 'raw',
           public_id: `${Date.now()}_${file.originalname.replace(/\s+/g, '_')}`,
           format: 'pdf',
+          type: 'upload',
         },
         (error, result) => {
           if (error) reject(error);
@@ -88,6 +89,12 @@ const uploadPdfNote = async (req, res) => {
         }
       );
       uploadStream.end(file.buffer);
+    });
+
+    console.log('[Cloudinary Upload] PDF Success:', {
+      resource_type: result.resource_type,
+      secure_url: result.secure_url,
+      type: result.type
     });
 
     // Create note in DB

@@ -2,6 +2,6 @@
 <resources>
     <string name="app_name">TimeVault</string>
     <string name="title_activity_main">TimeVault</string>
-    <string name="package_name">com.indransh.timevault</string>
-    <string name="custom_url_scheme">com.indransh.timevault</string>
+    <string name="package_name">com.timevault.app</string>
+    <string name="custom_url_scheme">com.timevault.app</string>
 </resources>

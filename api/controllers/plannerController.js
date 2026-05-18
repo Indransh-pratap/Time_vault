@@ -1,4 +1,5 @@
 const PlannerItem = require('../models/Planner');
+const MonthlyStrategy = require('../models/MonthlyStrategy');
 
 // ── Utility: 2 AM reset logic ─────────────────────────────────
 // If it's before 2 AM, treat this as still being the previous day
@@ -167,4 +168,34 @@ const syncParentProgress = async (parentId, appId) => {
   }
 };
 
-module.exports = { getPlanner, createPlannerItem, updatePlannerItem, deletePlannerItem };
+// ── Monthly Strategy ──────────────────────────────────────────
+const getStrategy = async (req, res) => {
+  try {
+    const { month } = req.query;
+    if (!month) return res.status(400).json({ message: 'month query param required limit' });
+    let strategy = await MonthlyStrategy.findOne({ userId: req.user.uid, month });
+    if (!strategy) {
+      strategy = await MonthlyStrategy.create({ userId: req.user.uid, month });
+    }
+    res.json(strategy);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const updateStrategy = async (req, res) => {
+  try {
+    const { month, goal, focusTags, quote } = req.body;
+    if (!month) return res.status(400).json({ message: 'month is required' });
+    const strategy = await MonthlyStrategy.findOneAndUpdate(
+      { userId: req.user.uid, month },
+      { goal, focusTags, quote },
+      { new: true, upsert: true }
+    );
+    res.json(strategy);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+module.exports = { getPlanner, createPlannerItem, updatePlannerItem, deletePlannerItem, getStrategy, updateStrategy };

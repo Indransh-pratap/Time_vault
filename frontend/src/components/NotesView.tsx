@@ -45,22 +45,35 @@ const formatFileSize = (bytes: number): string => {
 // ─── PDF Note Card ────────────────────────────────────────────────────────────
 
 function PdfNoteCard({ note, onDelete }: { note: Note; onDelete: () => void }) {
-  const handlePreview = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (note.fileUrl) window.open(note.fileUrl, '_blank');
-  };
+
 
   const handleDownload = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (note.fileUrl) {
+    
+    if (!note.fileUrl) {
+      toast.error('Download link is missing for this file');
+      return;
+    }
+
+    try {
+      let downloadUrl = note.fileUrl;
+      // Force download via Cloudinary transformation
+      if (downloadUrl.includes('cloudinary.com') && downloadUrl.includes('/upload/')) {
+        downloadUrl = downloadUrl.replace('/upload/', '/upload/fl_attachment/');
+      }
+
       const a = document.createElement('a');
-      a.href = note.fileUrl;
+      a.href = downloadUrl;
       a.download = note.fileName || 'document.pdf';
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
+      
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+    } catch (err) {
+      console.error('Download error:', err);
+      toast.error('Failed to initiate download');
     }
   };
 
@@ -115,32 +128,37 @@ function PdfNoteCard({ note, onDelete }: { note: Note; onDelete: () => void }) {
           {new Date(note.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
         </div>
 
-        {/* Action buttons */}
         <div className="flex items-center gap-2 pt-1">
-          <button
-            onClick={handlePreview}
-            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md bg-white/[0.03] border border-white/10 text-gray-400 hover:text-white hover:border-white/20 hover:bg-white/[0.06] transition-all text-[10px] font-mono uppercase tracking-widest"
+          <a
+            href={note.fileUrl || '#'}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-md bg-white/[0.03] border border-white/10 text-gray-400 hover:text-white hover:border-white/20 hover:bg-white/[0.06] transition-all text-[10px] font-mono uppercase tracking-widest"
           >
             <Eye size={11} />
-            Preview
-          </button>
-          <button
-            onClick={handleDownload}
-            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md bg-white/[0.03] border border-white/10 text-gray-400 hover:text-[#45A29E] hover:border-[#45A29E]/30 hover:bg-[#45A29E]/5 transition-all text-[10px] font-mono uppercase tracking-widest"
-          >
-            <Download size={11} />
-            Download
-          </button>
+            Preview Document
+          </a>
         </div>
       </div>
 
-      {/* Delete button */}
-      <button
-        onClick={(e) => { e.stopPropagation(); onDelete(); }}
-        className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 p-1.5 bg-black/70 border border-red-900/50 text-gray-500 hover:text-red-400 hover:border-red-500 rounded-sm transition-all"
-      >
-        <Trash2 size={12} />
-      </button>
+      {/* Top right floating actions (Download & Delete) */}
+      <div className="absolute top-3 right-3 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-all">
+        <button
+          onClick={handleDownload}
+          className="p-1.5 bg-black/70 border border-[#45A29E]/50 text-gray-500 hover:text-[#45A29E] hover:border-[#45A29E] rounded-sm transition-all"
+          title="Download PDF"
+        >
+          <Download size={12} />
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          className="p-1.5 bg-black/70 border border-red-900/50 text-gray-500 hover:text-red-400 hover:border-red-500 rounded-sm transition-all"
+          title="Delete Document"
+        >
+          <Trash2 size={12} />
+        </button>
+      </div>
     </motion.div>
   );
 }

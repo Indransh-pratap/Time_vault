@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Calendar, Plus, ChevronLeft, ChevronRight, Check, Trash2, X } from 'lucide-react';
+import { Calendar, Plus, ChevronLeft, ChevronRight, X, Edit2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
 import api from '../lib/api';
@@ -52,15 +52,17 @@ interface AddModalProps {
   onAdd: (task: Omit<PlannerTask, '_id' | 'progressPercent' | '_optimistic'>) => void;
 }
 const AddModal = ({ date, onClose, onAdd }: AddModalProps) => {
-  const [title,   setTitle]   = useState('');
-  const [subject, setSubject] = useState('General');
-  const [target,  setTarget]  = useState('1');
+  const [title,    setTitle]    = useState('');
+  const [subject,  setSubject]  = useState('General');
+  const [target,   setTarget]   = useState('1');
+  const [taskDate, setTaskDate] = useState(toYMD(date));
 
   const submit = () => {
     if (!title.trim()) { toast.error('Add a title'); return; }
     const t = Number(target);
     if (!t || t <= 0) { toast.error('Target must be > 0'); return; }
-    onAdd({ title: title.trim(), subject, target: t, progress: 0, type: 'daily', date: date.toISOString(), completed: false });
+    const d = new Date(taskDate);
+    onAdd({ title: title.trim(), subject, target: t, progress: 0, type: 'monthly', date: d.toISOString(), completed: false });
     onClose();
   };
 
@@ -86,6 +88,12 @@ const AddModal = ({ date, onClose, onAdd }: AddModalProps) => {
             <input autoFocus value={title} onChange={e => setTitle(e.target.value)} onKeyDown={e => e.key === 'Enter' && submit()}
               placeholder="e.g. Solve 5 LeetCode problems"
               className="w-full bg-[#050505] border border-gray-700 text-white px-3 py-2 rounded-sm focus:outline-none focus:border-[#E50914] transition-colors font-mono text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 font-mono tracking-widest uppercase mb-1 block">Date</label>
+            <input type="date" value={taskDate} onChange={e => setTaskDate(e.target.value)}
+              className="w-full bg-[#050505] border border-gray-700 text-white px-3 py-2 rounded-sm focus:outline-none focus:border-[#E50914] transition-colors font-mono text-sm [color-scheme:dark]"
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -123,48 +131,6 @@ const AddModal = ({ date, onClose, onAdd }: AddModalProps) => {
   );
 };
 
-// ─── Inline Task Card ─────────────────────────────────────────────────
-interface TaskCardProps {
-  task: PlannerTask;
-  onProgressChange: (id: string, delta: number) => void;
-  onToggle: (id: string) => void;
-  onDelete: (id: string) => void;
-}
-const TaskCard = ({ task, onProgressChange, onToggle, onDelete }: TaskCardProps) => {
-  const c = getSubjectColor(task.subject);
-  return (
-    <motion.div layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: task._optimistic ? 0.6 : 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
-      className={`border-l-2 ${c.border} bg-[#0d0d0d] rounded-sm px-2.5 py-2 group transition-all hover:bg-[#151515]`}
-    >
-      <div className="flex items-start justify-between gap-1 mb-1.5">
-        <div className="flex-1 min-w-0">
-          <p className={`text-xs font-bold font-mono uppercase tracking-wide truncate ${task.completed ? 'line-through text-gray-600' : 'text-gray-200'}`}>{task.title}</p>
-          <span className={`text-[10px] font-mono ${c.text}`}>{task.subject}</span>
-        </div>
-        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-          <button onClick={() => onToggle(task._id)} disabled={!!task._optimistic}
-            className={`w-5 h-5 flex items-center justify-center rounded-sm border transition-all ${task.completed ? 'border-green-500 text-green-500 bg-green-500/10' : 'border-gray-600 text-gray-500 hover:border-green-500 hover:text-green-500'}`}
-          ><Check size={10} /></button>
-          <button onClick={() => onDelete(task._id)} disabled={!!task._optimistic}
-            className="w-5 h-5 flex items-center justify-center rounded-sm border border-gray-600 text-gray-500 hover:border-red-500 hover:text-red-500 transition-all"
-          ><Trash2 size={10} /></button>
-        </div>
-      </div>
-      <div className="flex items-center gap-2">
-        <div className="flex-1 bg-black h-1 rounded-full overflow-hidden border border-gray-800">
-          <div className={`h-full ${c.bar} transition-all duration-500`} style={{ width: `${task.progressPercent}%` }} />
-        </div>
-        <span className="text-[10px] font-mono text-gray-500 w-7 text-right">{task.progressPercent}%</span>
-        <div className="flex gap-0.5">
-          <button onClick={() => onProgressChange(task._id, -1)} disabled={!!task._optimistic || task.progress <= 0}
-            className="w-4 h-4 flex items-center justify-center text-gray-600 hover:text-white disabled:opacity-30 transition-colors text-xs">−</button>
-          <button onClick={() => onProgressChange(task._id, 1)} disabled={!!task._optimistic}
-            className="w-4 h-4 flex items-center justify-center text-gray-600 hover:text-green-400 disabled:opacity-30 transition-colors text-xs">+</button>
-        </div>
-      </div>
-    </motion.div>
-  );
-};
 
 // ─── Day Cell ─────────────────────────────────────────────────────────
 interface DayCellProps { date: Date | null; tasks: PlannerTask[]; isToday: boolean; isSelected: boolean; onClick: () => void; }
@@ -205,8 +171,12 @@ const MonthlyPlannerView = () => {
   const [month,       setMonth]       = useState(now.getMonth());
   const [tasks,       setTasks]       = useState<PlannerTask[]>([]);
   const [loading,     setLoading]     = useState(true);
-  const [selectedDay, setSelectedDay] = useState<Date | null>(new Date());
   const [showAdd,     setShowAdd]     = useState(false);
+  const [addDate,     setAddDate]     = useState<Date>(now);
+
+  const [strategy, setStrategy] = useState({ goal: 'Set a primary goal for this month', focusTags: [] as string[], quote: 'Consistency > Motivation' });
+  const [isEditingStrategy, setIsEditingStrategy] = useState(false);
+  const [editForm, setEditForm] = useState({ goal: '', tags: '', quote: '' });
 
   const dirtyRef    = useRef<Record<string, Partial<PlannerTask>>>({});
   const autoSaveRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -217,8 +187,17 @@ const MonthlyPlannerView = () => {
   const fetchMonth = useCallback(async (y: number, m: number) => {
     setLoading(true);
     try {
-      const { data } = await api.get<PlannerTask[]>(`/planner?month=${toYMDStr(y, m)}`);
-      setTasks(data.map(t => ({ ...t, progressPercent: calcPercent(t.progress, t.target) })));
+      const ym = toYMDStr(y, m);
+      const [plannerRes, stratRes] = await Promise.all([
+        api.get<PlannerTask[]>(`/planner?month=${ym}`),
+        api.get(`/planner/strategy?month=${ym}`)
+      ]);
+      setTasks(plannerRes.data.filter(t => t.type === 'monthly').map(t => ({ ...t, progressPercent: calcPercent(t.progress, t.target) })));
+      if (stratRes.data) {
+         setStrategy({ goal: stratRes.data.goal, focusTags: stratRes.data.focusTags, quote: stratRes.data.quote });
+      } else {
+         setStrategy({ goal: 'Set a primary goal for this month', focusTags: [], quote: 'Consistency > Motivation' });
+      }
     } catch (err: any) {
       toast.error(err?.response?.data?.message || 'Failed to load monthly planner');
     } finally { setLoading(false); }
@@ -256,30 +235,18 @@ const MonthlyPlannerView = () => {
     return () => { if (autoSaveRef.current) clearInterval(autoSaveRef.current); flushDirty(); };
   }, [flushDirty]);
 
-  const changeProgress = (id: string, delta: number) => {
-    setTasks(prev => prev.map(t => {
-      if (t._id !== id || t._optimistic) return t;
-      const next = Math.max(0, t.progress + delta);
-      dirtyRef.current[id] = { ...dirtyRef.current[id], progress: next };
-      return { ...t, progress: next, progressPercent: calcPercent(next, t.target) };
-    }));
+  const saveStrategy = async () => {
+    try {
+      const tags = editForm.tags.split(',').map(s => s.trim()).filter(Boolean).slice(0, 4);
+      const res = await api.put(`/planner/strategy`, { month: toYMDStr(year, month), goal: editForm.goal, focusTags: tags, quote: editForm.quote });
+      setStrategy({ goal: res.data.goal, focusTags: res.data.focusTags, quote: res.data.quote });
+      setIsEditingStrategy(false);
+      toast.success('Strategy updated');
+    } catch (err) {
+      toast.error('Failed to update strategy');
+    }
   };
 
-  const toggleTask = (id: string) => {
-    setTasks(prev => prev.map(t => {
-      if (t._id !== id || t._optimistic) return t;
-      const nc = !t.completed;
-      dirtyRef.current[id] = { ...dirtyRef.current[id], completed: nc };
-      return { ...t, completed: nc };
-    }));
-  };
-
-  const handleDelete = async (id: string) => {
-    setTasks(prev => prev.filter(t => t._id !== id));
-    delete dirtyRef.current[id];
-    try { await api.delete(`/planner/${id}`); }
-    catch { toast.error('Delete failed'); fetchMonth(year, month); }
-  };
 
   const handleAdd = async (raw: Omit<PlannerTask, '_id' | 'progressPercent' | '_optimistic'>) => {
     const tempId = `tmp_${Date.now()}`;
@@ -308,7 +275,6 @@ const MonthlyPlannerView = () => {
   ];
   while (cells.length % 7 !== 0) cells.push(null);
 
-  const dayTasks  = selectedDay ? tasks.filter(t => taskDateYMD(t) === toYMD(selectedDay)) : [];
   const monthDone = tasks.filter(t => t.completed).length;
   const monthPct  = tasks.length ? Math.round((monthDone / tasks.length) * 100) : 0;
 
@@ -326,10 +292,61 @@ const MonthlyPlannerView = () => {
             <span className={`text-sm font-bold font-mono ${monthPct === 100 ? 'text-green-400' : 'text-[#E50914]'}`}>{monthPct}%</span>
             <span className="text-xs text-gray-600 font-mono">{monthDone}/{tasks.length} done</span>
           </div>
-          <button onClick={() => { setYear(now.getFullYear()); setMonth(now.getMonth()); setSelectedDay(new Date()); }}
+          <button onClick={() => { setYear(now.getFullYear()); setMonth(now.getMonth()); }}
             className="text-xs font-mono uppercase tracking-widest text-gray-500 hover:text-white border border-gray-700 hover:border-gray-500 px-3 py-1.5 rounded-sm transition-all"
           >Today</button>
+          <button onClick={() => { setAddDate(new Date()); setShowAdd(true); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#E50914]/10 border border-[#E50914] text-[#E50914] hover:bg-[#E50914] hover:text-white transition-all font-mono uppercase tracking-widest text-xs rounded-sm"
+          ><Plus size={14} /> Add</button>
         </div>
+      </div>
+
+      {/* ── Monthly Strategy Block ── */}
+      <div className="bg-[#050505] border border-gray-900 rounded-sm p-4 flex flex-col gap-3 mt-1 mb-2 relative group">
+        {isEditingStrategy ? (
+          <div className="flex flex-col gap-3">
+            <input value={editForm.goal} onChange={e => setEditForm({ ...editForm, goal: e.target.value })} placeholder="Target (e.g. 200 LeetCode Problems)" className="w-full bg-[#111] border border-gray-800 text-white px-3 py-2 rounded-sm text-sm font-mono focus:border-[#E50914] outline-none" />
+            <input value={editForm.tags} onChange={e => setEditForm({ ...editForm, tags: e.target.value })} placeholder="Comma-separated tags (e.g. DSA, Backend, Gym)" className="w-full bg-[#111] border border-gray-800 text-white px-3 py-2 rounded-sm text-sm font-mono focus:border-[#E50914] outline-none" />
+            <input value={editForm.quote} onChange={e => setEditForm({ ...editForm, quote: e.target.value })} placeholder="Motivation line" className="w-full bg-[#111] border border-gray-800 text-white px-3 py-2 rounded-sm text-sm font-mono focus:border-[#E50914] outline-none" />
+            <div className="flex justify-end gap-2 mt-1">
+               <button onClick={() => setIsEditingStrategy(false)} className="px-3 py-1.5 bg-gray-900 text-gray-400 hover:text-white rounded-sm text-xs font-mono">Cancel</button>
+               <button onClick={saveStrategy} className="px-3 py-1.5 bg-[#E50914]/20 border border-[#E50914] text-[#E50914] hover:bg-[#E50914] hover:text-white transition-colors rounded-sm text-xs font-mono uppercase tracking-widest">Save</button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <button onClick={() => { setEditForm({ goal: strategy.goal, tags: strategy.focusTags.join(', '), quote: strategy.quote }); setIsEditingStrategy(true); }} className="absolute top-4 right-4 p-1.5 bg-black/50 border border-gray-800 text-gray-500 hover:text-[#E50914] hover:border-[#E50914] rounded-sm transition-all opacity-0 group-hover:opacity-100">
+               <Edit2 size={12} />
+            </button>
+            <div className="flex justify-between items-start">
+              <div className="flex-1 pr-6">
+                <h4 className="text-[10px] font-mono text-gray-500 uppercase tracking-widest mb-1">Monthly Mission</h4>
+                <p className="text-sm font-bold font-mono text-white tracking-wide">{strategy.goal}</p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-3">
+              <div className="flex-1 h-1.5 bg-black rounded-full overflow-hidden border border-gray-900">
+                <div className={`h-full ${monthPct === 100 ? 'bg-green-500' : 'bg-[#E50914]'} shadow-[0_0_10px_rgba(229,9,20,0.3)] transition-all duration-500`} style={{ width: `${monthPct}%` }} />
+              </div>
+              <span className="text-[10px] font-mono text-gray-500">{monthPct}%</span>
+            </div>
+
+            <div className="flex gap-2 flex-wrap mt-0.5">
+              {strategy.focusTags.length > 0 ? strategy.focusTags.map(area => (
+                <span key={area} className="text-[9px] font-mono px-1.5 py-0.5 rounded-sm bg-[#151515] border border-gray-800 text-gray-400">
+                  {area}
+                </span>
+              )) : (
+                <span className="text-[9px] font-mono text-gray-600">No focus tags set</span>
+              )}
+            </div>
+            
+            <div className="pt-2 border-t border-gray-900 mt-1">
+              <p className="text-[10px] font-mono text-gray-600 italic text-center">"{strategy.quote}"</p>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Month Nav */}
@@ -357,50 +374,24 @@ const MonthlyPlannerView = () => {
                 key={i} date={date}
                 tasks={date ? tasks.filter(t => taskDateYMD(t) === toYMD(date)) : []}
                 isToday={date ? toYMD(date) === toYMD(today) : false}
-                isSelected={date && selectedDay ? toYMD(date) === toYMD(selectedDay) : false}
-                onClick={() => date && setSelectedDay(new Date(date))}
+                isSelected={false}
+                onClick={() => { if (date) { setAddDate(new Date(date)); setShowAdd(true); } }}
               />
             ))}
           </div>
         </>
       )}
 
-      {/* Day Detail */}
-      {selectedDay && (
-        <div className="mt-1 bg-[#0d0d0d] border border-gray-800 rounded-sm p-4">
-          <div className="flex justify-between items-center mb-4">
-            <div>
-              <h4 className="font-bold font-mono uppercase tracking-widest text-white text-sm">
-                {DAY_LABELS[selectedDay.getDay()]} {selectedDay.getDate()} {SHORT_MONTH[selectedDay.getMonth()]}
-                {toYMD(selectedDay) === toYMD(today) && (
-                  <span className="ml-2 text-[#E50914] text-xs border border-[#E50914]/40 px-1.5 py-0.5 rounded-sm">TODAY</span>
-                )}
-              </h4>
-              <p className="text-xs text-gray-500 font-mono mt-0.5">{dayTasks.length} task{dayTasks.length !== 1 ? 's' : ''} · auto-saves every 15s</p>
-            </div>
-            <button onClick={() => setShowAdd(true)}
-              className="flex items-center gap-1.5 px-4 py-2 bg-[#E50914]/10 border border-[#E50914] text-[#E50914] hover:bg-[#E50914] hover:text-white active:scale-95 transition-all font-mono uppercase tracking-widest text-xs rounded-sm"
-            ><Plus size={14} /> Add Task</button>
-          </div>
-          <AnimatePresence>
-            {dayTasks.length === 0 ? (
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                className="text-center py-8 text-[#E50914]/40 font-mono text-sm uppercase tracking-widest border-2 border-dashed border-[#E50914]/10 rounded-sm"
-              >No tasks — add one above</motion.div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {dayTasks.map(task => (
-                  <TaskCard key={task._id} task={task} onProgressChange={changeProgress} onToggle={toggleTask} onDelete={handleDelete} />
-                ))}
-              </div>
-            )}
-          </AnimatePresence>
-        </div>
+      {/* Empty State */}
+      {tasks.length === 0 && !loading && (
+         <div className="text-center py-6 text-gray-500 font-mono text-xs uppercase tracking-widest border border-dashed border-gray-800 rounded-sm mt-2">
+            No tasks yet — Click any date or <button onClick={() => {setAddDate(now); setShowAdd(true);}} className="text-[#E50914] hover:underline">Add</button> to plan your mission.
+         </div>
       )}
 
       <AnimatePresence>
-        {showAdd && selectedDay && (
-          <AddModal date={selectedDay} onClose={() => setShowAdd(false)} onAdd={handleAdd} />
+        {showAdd && (
+          <AddModal date={addDate} onClose={() => setShowAdd(false)} onAdd={handleAdd} />
         )}
       </AnimatePresence>
     </div>

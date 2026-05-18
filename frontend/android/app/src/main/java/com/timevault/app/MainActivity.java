@@ -1,4 +1,4 @@
-package com.indransh.timevault;
+package com.timevault.app;
 
 import com.getcapacitor.BridgeActivity;
 
