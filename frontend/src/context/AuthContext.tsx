@@ -1,13 +1,16 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { auth, googleProvider, githubProvider } from "../firebase";
 import { 
-  signInWithPopup, signOut, onAuthStateChanged, type User as FirebaseUser,
+  signInWithPopup, signInWithRedirect, getRedirectResult, 
+  setPersistence, browserLocalPersistence, 
+  signOut, onAuthStateChanged, type User as FirebaseUser,
   fetchSignInMethodsForEmail,
   createUserWithEmailAndPassword, signInWithEmailAndPassword,
   sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink,
   sendPasswordResetEmail, EmailAuthProvider, reauthenticateWithCredential, updatePassword,
   GoogleAuthProvider, GithubAuthProvider, AuthCredential
 } from "firebase/auth";
+import { Capacitor } from '@capacitor/core';
 import api from "../lib/api";
 import { toast } from "react-hot-toast";
 
@@ -58,6 +61,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Force local persistence to fix mobile session storage issues
+    setPersistence(auth, browserLocalPersistence).catch(console.error);
+
+    // Handle incoming redirect results (essential for mobile/external browser flow)
+    if (Capacitor.isNativePlatform()) {
+      getRedirectResult(auth).then((result) => {
+        if (result?.user) {
+          toast.success("Identity verified via mobile sync");
+        }
+      }).catch((error) => {
+        if (error.code !== 'auth/no-auth-event') {
+          console.error("Redirect Auth Error:", error);
+          toast.error("Authentication failed: " + error.message);
+        }
+      });
+    }
+
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
@@ -112,8 +132,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const signInWithGoogle = () => handleAuthWithLinking(() => signInWithPopup(auth, googleProvider), 'Google');
-  const signInWithGithub = () => handleAuthWithLinking(() => signInWithPopup(auth, githubProvider), 'GitHub');
+  const signInWithGoogle = () => {
+    if (Capacitor.isNativePlatform()) {
+      return handleAuthWithLinking(() => signInWithRedirect(auth, googleProvider), 'Google');
+    }
+    return handleAuthWithLinking(() => signInWithPopup(auth, googleProvider), 'Google');
+  };
+
+  const signInWithGithub = () => {
+    if (Capacitor.isNativePlatform()) {
+      return handleAuthWithLinking(() => signInWithRedirect(auth, githubProvider), 'GitHub');
+    }
+    return handleAuthWithLinking(() => signInWithPopup(auth, githubProvider), 'GitHub');
+  };
+
 
   const signUpWithEmailPass = async (email: string, pass: string) => {
     try {
