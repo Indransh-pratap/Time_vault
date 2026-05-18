@@ -1,8 +1,12 @@
 import axios from 'axios';
 import { auth } from '../firebase';
+import { Capacitor } from '@capacitor/core';
+
+const PRODUCTION_API_URL = 'https://time-vault-gamma.vercel.app/api';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api' || 'https://time-vault.onrender.com/api'
+  baseURL: import.meta.env.VITE_API_URL || 
+           (Capacitor.isNativePlatform() ? PRODUCTION_API_URL : (import.meta.env.DEV ? 'http://localhost:5000/api' : PRODUCTION_API_URL))
 });
 
 // Attach a fresh Firebase ID token to every outgoing request

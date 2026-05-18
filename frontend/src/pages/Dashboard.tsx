@@ -3,8 +3,10 @@ import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   LogOut, LayoutDashboard, Calendar, Target, Activity,
-  Menu, X, Zap, Bell, Music, StickyNote, Maximize2, Clock, MessageSquare, User, Terminal
+  Menu, X, Zap, Bell, Music, StickyNote, Maximize2, Clock, MessageSquare, User, Terminal,
+  Download
 } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
 import { motion, AnimatePresence } from 'framer-motion';
 import TaskList from '../components/TaskList';
 import StudyMetrics from '../components/StudyMetrics';
@@ -250,6 +252,20 @@ export default function Dashboard() {
                   <span className="tabular-nums text-[#45A29E]">{fmtTime(todayStudy)}</span>
                   <span className="text-gray-700 text-[10px]">today</span>
                 </motion.div>
+              )}
+
+              {/* Download APK (Only on Web) */}
+              {!Capacitor.isNativePlatform() && (
+                <motion.a
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  href="/timevault.apk"
+                  download="TimeVault.apk"
+                  className="flex items-center gap-2 px-3 py-2 rounded-md border border-cyan-500/30 bg-cyan-500/8 text-cyan-400 hover:border-cyan-500/70 hover:bg-cyan-500/15 transition-all font-mono text-xs uppercase tracking-wider"
+                >
+                  <Download size={14} />
+                  <span className="hidden lg:inline">Get App</span>
+                </motion.a>
               )}
 
               {/* Focus Mode button */}
