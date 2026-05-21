@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const codingController = require('../controllers/codingController');
-const auth = require('../middleware/auth');
+const { protect } = require('../middleware/auth');
 
 // All coding routes are protected
-router.use(auth);
+router.use(protect);
 
 router.get('/profile', codingController.getProfile);
 router.put('/profile', codingController.updateProfile);
