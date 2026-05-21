@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
-import { Lock, Loader2, ShieldCheck, Mail } from 'lucide-react';
+import { Lock, Loader2, ShieldCheck, Mail, LogOut } from 'lucide-react';
 
 export default function ProfileView() {
-  const { mongoUser, user, changePassword } = useAuth();
+  const { mongoUser, user, changePassword, logout } = useAuth();
 
   const [currentPass, setCurrentPass] = useState('');
   const [newPass, setNewPass] = useState('');
@@ -117,13 +117,23 @@ export default function ProfileView() {
           <div className="text-red-500 text-sm">{errorMsg}</div>
         )}
 
-        <button
-          onClick={handleProfileUpdate}
-          disabled={saving}
-          className="bg-[#E50914] px-6 py-3 text-white font-mono uppercase tracking-widest disabled:opacity-50"
-        >
-          {saving ? "Saving..." : "Update Profile"}
-        </button>
+        <div className="flex gap-4">
+          <button
+            onClick={handleProfileUpdate}
+            disabled={saving}
+            className="flex-1 bg-[#E50914] px-6 py-3 text-white font-mono uppercase tracking-widest disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Update Profile"}
+          </button>
+
+          <button
+            onClick={logout}
+            className="flex items-center justify-center gap-2 bg-black border border-gray-800 px-6 py-3 text-white font-mono uppercase tracking-widest hover:border-red-500 transition-colors"
+          >
+            <LogOut size={18} />
+            Logout
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
