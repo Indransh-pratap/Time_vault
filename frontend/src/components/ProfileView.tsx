@@ -204,6 +204,17 @@ export default function ProfileView() {
           OAuth account — password managed externally
         </div>
       )}
+
+      {/* Danger Zone / Logout */}
+      <div className="mt-4">
+        <button
+          onClick={logout}
+          className="w-full group flex items-center justify-center gap-3 bg-black border border-[#E50914]/30 p-4 rounded-lg text-[#E50914] font-mono uppercase tracking-[0.2em] hover:bg-[#E50914]/10 hover:border-[#E50914] transition-all duration-300 shadow-[0_0_10px_rgba(229,9,20,0.1)] hover:shadow-[0_0_20px_rgba(229,9,20,0.2)]"
+        >
+          <LogOut size={20} className="group-hover:rotate-12 transition-transform" />
+          Terminate Session / Logout
+        </button>
+      </div>
     </div>
   );
 }
