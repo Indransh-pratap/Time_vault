@@ -1,5 +1,49 @@
 {
+  "name": "timevault-next",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
   "dependencies": {
-    "serverless-http": "^4.0.0"
+    "next": "15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "mongoose": "^8.9.0",
+    "next-auth": "5.0.0-beta.25",
+    "zod": "^3.24.1",
+    "react-hook-form": "^7.54.1",
+    "@hookform/resolvers": "^3.9.1",
+    "lucide-react": "^0.468.0",
+    "framer-motion": "^11.13.5",
+    "zustand": "^5.0.2",
+    "axios": "^1.7.9",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^2.5.5",
+    "firebase": "^11.1.0",
+    "firebase-admin": "^13.0.1",
+    "stripe": "^17.4.0",
+    "cloudinary": "^2.5.1",
+    "nodemailer": "^6.9.16",
+    "date-fns": "^4.1.0",
+    "react-hot-toast": "^2.4.1",
+    "lucide-react": "^0.468.0",
+    "socket.io-client": "^4.8.1",
+    "bcryptjs": "^2.4.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.1",
+    "@types/react-dom": "^19.0.2",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.16",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^9.16.0",
+    "eslint-config-next": "15.1.0",
+    "@types/bcryptjs": "^2.4.6"
   }
 }
